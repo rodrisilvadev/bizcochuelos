@@ -6,7 +6,7 @@ import {
   dbAddUser,
   dbUpdateUserSelections,
   dbDeleteUser,
-  loadFromServer,
+  loadFromCloud,
   saveAppState,
 } from './services/db';
 import type { AppState, BizcochoSelections, BizcochoType } from './types';
@@ -26,11 +26,10 @@ function App() {
   useEffect(() => {
     setState(prev => checkAndRotateWednesday({ ...prev }));
 
-    loadFromServer().then(serverState => {
-      if (serverState) {
-        const rotated = checkAndRotateWednesday({ ...serverState });
+    loadFromCloud().then(cloudState => {
+      if (cloudState) {
+        const rotated = checkAndRotateWednesday({ ...cloudState });
         setState(rotated);
-        // Keep local cache in sync
         saveAppState(rotated);
       }
     });
