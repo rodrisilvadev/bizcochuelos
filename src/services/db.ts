@@ -3,8 +3,12 @@ import { BIZCOCHO_TYPES } from '../types';
 
 const LOCAL_STORAGE_KEY = 'bizcochuelos_app_state_v4';
 
-// Firebase Realtime Database REST API — no SDK config needed, just the URL
-const FIREBASE_DB_URL = import.meta.env.VITE_FIREBASE_DB_URL as string | undefined;
+// GitHub Gist as shared state backend — public read, token-authenticated write
+const GIST_ID = '551e62ee777a3ad6acc9e88504bb29b1';
+const GIST_RAW_URL = `https://gist.githubusercontent.com/rodrisilvadev/${GIST_ID}/raw/state.json`;
+const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
+// Fine-grained: gist read/write only — safe to embed for this internal app
+const GIST_TOKEN = (import.meta.env.VITE_GIST_TOKEN as string | undefined) ?? '';
 
 export const createEmptySelections = (): BizcochoSelections => {
   return BIZCOCHO_TYPES.reduce((acc, type) => {
@@ -19,116 +23,82 @@ export const getNextWednesday = (dateStr: string): string => {
   return d.toISOString().split('T')[0];
 };
 
-// Fabri compró hoy (2026-06-24). El próximo es Ignacio.
+// Fabri compró el 2026-06-24. El próximo es Ignacio.
 const INITIAL_STATE: AppState = {
   users: [
     {
-      id: 'rodri',
-      name: 'Rodri',
-      selections: {
-        'Vigilante': 1, 'Queso': 1, 'Membrillo': 1, 'Dulce de Leche (ddl)': 1,
-        'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Margarita': 0,
-        'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0
-      },
+      id: 'rodri', name: 'Rodri',
+      selections: { 'Vigilante': 1, 'Queso': 1, 'Membrillo': 1, 'Dulce de Leche (ddl)': 1, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Margarita': 0, 'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 0
     },
     {
-      id: 'fabri',
-      name: 'Fabri',
-      selections: {
-        'Pan con grasa': 1, 'Panceta': 1, 'Choco': 1, 'Vigilante': 1,
-        'Queso': 0, 'Membrillo': 0, 'Dulce de Leche (ddl)': 0, 'Margarita': 0,
-        'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0
-      },
+      id: 'fabri', name: 'Fabri',
+      selections: { 'Pan con grasa': 1, 'Panceta': 1, 'Choco': 1, 'Vigilante': 1, 'Queso': 0, 'Membrillo': 0, 'Dulce de Leche (ddl)': 0, 'Margarita': 0, 'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 1
     },
     {
-      id: 'pablo',
-      name: 'Pablo',
-      selections: {
-        'Dulce de Leche (ddl)': 2, 'Queso': 1, 'Margarita': 1, 'Vigilante': 0,
-        'Membrillo': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0,
-        'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0
-      },
+      id: 'pablo', name: 'Pablo',
+      selections: { 'Dulce de Leche (ddl)': 2, 'Queso': 1, 'Margarita': 1, 'Vigilante': 0, 'Membrillo': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 0
     },
     {
-      id: 'bernardo',
-      name: 'Bernardo',
-      selections: {
-        'Queso': 1, 'Jamón': 1, 'Margarita': 1, 'Membrillo': 1, 'Vigilante': 0,
-        'Dulce de Leche (ddl)': 0, 'Pan con grasa': 0, 'Panceta': 0,
-        'Choco': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0
-      },
+      id: 'bernardo', name: 'Bernardo',
+      selections: { 'Queso': 1, 'Jamón': 1, 'Margarita': 1, 'Membrillo': 1, 'Vigilante': 0, 'Dulce de Leche (ddl)': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 0
     },
     {
-      id: 'fede',
-      name: 'Fede',
-      selections: {
-        'Margarita': 2, 'Jamón y queso (jyq)': 2, 'Vigilante': 0, 'Queso': 0,
-        'Membrillo': 0, 'Dulce de Leche (ddl)': 0, 'Pan con grasa': 0,
-        'Panceta': 0, 'Choco': 0, 'Jamón': 0, 'Salado común': 0, 'Chicharrones': 0
-      },
+      id: 'fede', name: 'Fede',
+      selections: { 'Margarita': 2, 'Jamón y queso (jyq)': 2, 'Vigilante': 0, 'Queso': 0, 'Membrillo': 0, 'Dulce de Leche (ddl)': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Jamón': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 1
     },
     {
-      id: 'mauri',
-      name: 'Mauri',
-      selections: {
-        'Queso': 1, 'Panceta': 1, 'Dulce de Leche (ddl)': 1, 'Margarita': 1,
-        'Vigilante': 0, 'Membrillo': 0, 'Pan con grasa': 0, 'Choco': 0,
-        'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0
-      },
+      id: 'mauri', name: 'Mauri',
+      selections: { 'Queso': 1, 'Panceta': 1, 'Dulce de Leche (ddl)': 1, 'Margarita': 1, 'Vigilante': 0, 'Membrillo': 0, 'Pan con grasa': 0, 'Choco': 0, 'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 0
     },
     {
-      id: 'javier',
-      name: 'Javier',
-      selections: {
-        'Queso': 2, 'Dulce de Leche (ddl)': 1, 'Membrillo': 1, 'Vigilante': 0,
-        'Pan con grasa': 0, 'Panceta': 0, 'Margarita': 0, 'Choco': 0,
-        'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0
-      },
+      id: 'javier', name: 'Javier',
+      selections: { 'Queso': 2, 'Dulce de Leche (ddl)': 1, 'Membrillo': 1, 'Vigilante': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Margarita': 0, 'Choco': 0, 'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 1
     },
     {
-      id: 'ignacio',
-      name: 'Ignacio',
-      selections: {
-        'Vigilante': 1, 'Membrillo': 1, 'Jamón': 1, 'Queso': 1,
-        'Dulce de Leche (ddl)': 0, 'Pan con grasa': 0, 'Panceta': 0,
-        'Choco': 0, 'Margarita': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0
-      },
+      id: 'ignacio', name: 'Ignacio',
+      selections: { 'Vigilante': 1, 'Membrillo': 1, 'Jamón': 1, 'Queso': 1, 'Dulce de Leche (ddl)': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Margarita': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 0
     }
   ],
-  // Fabri compró el 2026-06-24. Próximo: Ignacio (2026-07-01)
   buyerQueue: ['ignacio', 'rodri', 'pablo', 'bernardo', 'mauri', 'fede', 'javier', 'fabri'],
   lastProcessedWednesday: '2026-06-24',
   lastReviewer: '',
   lastReviewTimestamp: null
 };
 
-// ── Firebase sync (REST API, fire and forget) ──────────────────────────────
+// ── Cloud sync via GitHub Gist ─────────────────────────────────────────────
 
 export const loadFromCloud = async (): Promise<AppState | null> => {
-  if (!FIREBASE_DB_URL) return null;
   try {
-    const res = await fetch(`${FIREBASE_DB_URL}/state.json`);
+    // Add cache-busting so we always get the latest version
+    const res = await fetch(`${GIST_RAW_URL}?t=${Date.now()}`);
     if (!res.ok) return null;
-    return await res.json() as AppState | null;
+    const data = await res.json();
+    return data as AppState;
   } catch {
     return null;
   }
 };
 
 const syncToCloud = (state: AppState): void => {
-  if (!FIREBASE_DB_URL) return;
-  fetch(`${FIREBASE_DB_URL}/state.json`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(state),
+  if (!GIST_TOKEN) return;
+  fetch(GIST_API_URL, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${GIST_TOKEN}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'bizcochuelos-app',
+    },
+    body: JSON.stringify({
+      files: { 'state.json': { content: JSON.stringify(state) } }
+    }),
   }).catch(() => {});
 };
 
@@ -170,9 +140,7 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
       if (buyerId) {
         state.buyerQueue.push(buyerId);
         const buyerUser = state.users.find(u => u.id === buyerId);
-        if (buyerUser) {
-          buyerUser.comprasCount = (buyerUser.comprasCount || 0) + 1;
-        }
+        if (buyerUser) buyerUser.comprasCount = (buyerUser.comprasCount || 0) + 1;
       }
       stateChanged = true;
     }
@@ -191,22 +159,10 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
 export const dbAddUser = (name: string, selections: BizcochoSelections): AppState => {
   const state = getAppState();
   const newId = `user-${Date.now()}`;
-  const newUser: User = {
-    id: newId,
-    name: name.trim(),
-    selections,
-    ingresosCount: 0,
-    comprasCount: 0
-  };
-
+  const newUser: User = { id: newId, name: name.trim(), selections, ingresosCount: 0, comprasCount: 0 };
   state.users.push(newUser);
-
-  if (state.buyerQueue.length >= 2) {
-    state.buyerQueue.splice(1, 0, newId);
-  } else {
-    state.buyerQueue.push(newId);
-  }
-
+  if (state.buyerQueue.length >= 2) state.buyerQueue.splice(1, 0, newId);
+  else state.buyerQueue.push(newId);
   saveAppState(state);
   return state;
 };
@@ -214,10 +170,7 @@ export const dbAddUser = (name: string, selections: BizcochoSelections): AppStat
 export const dbUpdateUserSelections = (userId: string, selections: BizcochoSelections): AppState => {
   const state = getAppState();
   const user = state.users.find(u => u.id === userId);
-  if (user) {
-    user.selections = selections;
-    saveAppState(state);
-  }
+  if (user) { user.selections = selections; saveAppState(state); }
   return state;
 };
 
