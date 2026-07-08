@@ -50,8 +50,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser }) => {
   const getUpcomingWednesday = (offsetWeeks = 0): Date => {
     const d = new Date();
     const day = d.getDay(); // 0=Sun … 6=Sat
-    let daysToWed = (3 - day + 7) % 7;
-    if (daysToWed === 0 && day === 3 && d.getHours() >= 13) daysToWed = 7;
+    // Si HOY es miércoles, ese es el día de compra (el comprador del turno
+    // compra hoy). Recién a partir del jueves apunta al próximo miércoles.
+    const daysToWed = (3 - day + 7) % 7;
     d.setDate(d.getDate() + daysToWed + offsetWeeks * 7);
     return d;
   };
@@ -106,7 +107,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser }) => {
             </div>
 
             <div>
-              <p className="text-[11px] text-gray-300/80 font-semibold uppercase tracking-wider mb-1">
+              <p className="text-[11px] text-white/75 font-semibold uppercase tracking-wider mb-1">
                 Le toca comprar:
               </p>
               <p className="text-3xl font-extrabold text-white tracking-tight truncate">
@@ -116,7 +117,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser }) => {
 
             {nextBuyer && (
               <div className="flex items-center gap-1.5 rounded-xl px-3 py-2 w-fit bg-white/8 border border-white/10">
-                <span className="text-[10px] text-gray-300 font-bold">Siguiente:</span>
+                <span className="text-[10px] text-white/70 font-bold">Siguiente:</span>
                 <span className="text-xs text-apple-green font-extrabold flex items-center gap-1">
                   {nextBuyer.name}
                   <ArrowRight className="w-3 h-3" />
@@ -156,7 +157,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser }) => {
           Ver cuándo me toca
         </button>
 
-        <div className="relative mt-3 flex items-center justify-center gap-1.5 text-[10px] text-gray-400 font-semibold">
+        <div className="relative mt-3 flex items-center justify-center gap-1.5 text-[10px] text-white/65 font-semibold">
           <Clock className="w-3 h-3 text-apple-green" />
           <span>Rotación automática cada miércoles</span>
         </div>
