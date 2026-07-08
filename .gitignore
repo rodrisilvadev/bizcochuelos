@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Estado local que escribe server.js en dev (no debe versionarse)
+state.json
+# Config local de preview
+.claude/launch.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
