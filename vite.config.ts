@@ -8,7 +8,16 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  // Pre-bundlear lucide-react evita el loop de "re-optimizar deps → recargar"
+  // en dev cuando se agregan íconos nuevos.
+  optimizeDeps: {
+    include: ['lucide-react'],
+  },
   server: {
+    // El estado local (state.json que escribe server.js) no debe disparar HMR.
+    watch: {
+      ignored: ['**/state.json'],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
