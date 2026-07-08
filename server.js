@@ -44,8 +44,8 @@ app.post('/api/state', (req, res) => {
   }
 });
 
-// SPA fallback
-app.get('*', (req, res) => {
+// SPA fallback — Express 5 exige comodín con nombre o regex ('*' pelado rompe)
+app.get(/.*/, (req, res) => {
   const indexPath = join(__dirname, 'dist', 'index.html');
   if (existsSync(indexPath)) {
     res.sendFile(indexPath);

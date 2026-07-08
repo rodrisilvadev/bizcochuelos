@@ -3,12 +3,10 @@ import { BIZCOCHO_TYPES } from '../types';
 
 const LOCAL_STORAGE_KEY = 'bizcochuelos_app_state_v4';
 
-// GitHub Gist as shared state backend — public read, token-authenticated write
-const GIST_ID = '551e62ee777a3ad6acc9e88504bb29b1';
-const GIST_RAW_URL = `https://gist.githubusercontent.com/rodrisilvadev/${GIST_ID}/raw/state.json`;
-const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
-// Fine-grained: gist read/write only — safe to embed for this internal app
-const GIST_TOKEN = (import.meta.env.VITE_GIST_TOKEN as string | undefined) ?? '';
+// Backend compartido a través de /api/state (proxy serverless en Vercel, o
+// server.js en dev local). El token del Gist vive SOLO en el servidor: el
+// cliente nunca lo ve. GET devuelve el estado, POST lo guarda.
+const API_URL = '/api/state';
 
 export const createEmptySelections = (): BizcochoSelections => {
   return BIZCOCHO_TYPES.reduce((acc, type) => {
@@ -73,14 +71,15 @@ const INITIAL_STATE: AppState = {
   lastReviewTimestamp: null
 };
 
-// ── Cloud sync via GitHub Gist ─────────────────────────────────────────────
+// ── Sincronización con el backend compartido ───────────────────────────────
 
 export const loadFromCloud = async (): Promise<AppState | null> => {
   try {
-    // Add cache-busting so we always get the latest version
-    const res = await fetch(`${GIST_RAW_URL}?t=${Date.now()}`);
+    // Cache-busting para traer siempre la última versión
+    const res = await fetch(`${API_URL}?t=${Date.now()}`);
     if (!res.ok) return null;
     const data = await res.json();
+    if (!data) return null;
     return data as AppState;
   } catch {
     return null;
@@ -88,17 +87,10 @@ export const loadFromCloud = async (): Promise<AppState | null> => {
 };
 
 const syncToCloud = (state: AppState): void => {
-  if (!GIST_TOKEN) return;
-  fetch(GIST_API_URL, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${GIST_TOKEN}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'bizcochuelos-app',
-    },
-    body: JSON.stringify({
-      files: { 'state.json': { content: JSON.stringify(state) } }
-    }),
+  fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state),
   }).catch(() => {});
 };
 
@@ -134,7 +126,10 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
   let nextWednesday = getNextWednesday(currentWednesday);
   let stateChanged = false;
 
-  while (nextWednesday <= todayStr) {
+  // Solo rotamos por miércoles que ya quedaron ESTRICTAMENTE en el pasado.
+  // Usar "<" (no "<=") evita adelantar el turno el propio miércoles de compra:
+  // el comprador de hoy sigue siendo el head hasta que el día termina.
+  while (nextWednesday < todayStr) {
     if (state.buyerQueue.length > 0) {
       const buyerId = state.buyerQueue.shift();
       if (buyerId) {

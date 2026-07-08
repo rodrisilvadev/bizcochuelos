@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   getAppState,
   checkAndRotateWednesday,
@@ -22,7 +22,12 @@ function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members'>('dashboard');
   const [showOrderModal, setShowOrderModal] = useState(false);
 
-  // On mount: rotate Wednesday, then load latest state from server
+  // Marca el instante del último cambio local, para que el polling no pise
+  // una edición recién guardada mientras la escritura viaja al servidor.
+  const lastLocalWriteRef = useRef(0);
+  const markLocalWrite = () => { lastLocalWriteRef.current = Date.now(); };
+
+  // Al montar: rotar miércoles y traer el último estado compartido.
   useEffect(() => {
     setState(prev => checkAndRotateWednesday({ ...prev }));
 
@@ -35,7 +40,19 @@ function App() {
     });
   }, []);
 
+  // Tiempo real: refrescar el estado compartido cada 15 s.
+  useEffect(() => {
+    const id = setInterval(async () => {
+      // No pisar un cambio local reciente (ventana de 6 s para el round-trip).
+      if (Date.now() - lastLocalWriteRef.current < 6000) return;
+      const cloudState = await loadFromCloud();
+      if (cloudState) setState(checkAndRotateWednesday({ ...cloudState }));
+    }, 15000);
+    return () => clearInterval(id);
+  }, []);
+
   const handleSelectUser = (userId: string) => {
+    markLocalWrite();
     const newState = dbRecordUserVisit(userId);
     setState(newState);
     setCurrentUser(userId);
@@ -44,14 +61,17 @@ function App() {
   const handleLogout = () => setCurrentUser(null);
 
   const handleAddUser = (name: string, selections: BizcochoSelections) => {
+    markLocalWrite();
     setState(dbAddUser(name, selections));
   };
 
   const handleUpdateUserSelections = (userId: string, selections: BizcochoSelections) => {
+    markLocalWrite();
     setState(dbUpdateUserSelections(userId, selections));
   };
 
   const handleDeleteUser = (userId: string) => {
+    markLocalWrite();
     setState(dbDeleteUser(userId));
     if (currentUser === userId) setCurrentUser(null);
   };
