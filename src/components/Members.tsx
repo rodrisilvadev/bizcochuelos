@@ -82,11 +82,11 @@ export const Members: React.FC<MembersProps> = ({
   const StepperRow = ({
     type, count, onInc, onDec, canInc
   }: { type: BizcochoType; count: number; onInc: () => void; onDec: () => void; canInc: boolean }) => (
-    <div className="flex items-center justify-between py-2.5 px-1 border-b border-gray-50 last:border-0">
+    <div className="flex items-center justify-between py-2.5 px-1 border-b border-gray-50 dark:border-white/5 last:border-0">
       <div className="flex items-center gap-2 min-w-0 flex-1">
         {count > 0 && <div className="w-1.5 h-1.5 rounded-full bg-apple-green flex-shrink-0" />}
-        {count === 0 && <div className="w-1.5 h-1.5 rounded-full bg-gray-200 flex-shrink-0" />}
-        <span className={`text-xs font-semibold truncate ${count > 0 ? 'text-carbon-dark' : 'text-gray-400'}`}>
+        {count === 0 && <div className="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-white/15 flex-shrink-0" />}
+        <span className={`text-xs font-semibold truncate ${count > 0 ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
           {type}
         </span>
       </div>
@@ -95,18 +95,18 @@ export const Members: React.FC<MembersProps> = ({
           type="button"
           onClick={onDec}
           disabled={count <= 0}
-          className="w-7 h-7 rounded-lg bg-carbon-light border border-gray-100 flex items-center justify-center text-gray-500 hover:bg-white hover:border-gray-200 transition-all active:scale-95 disabled:opacity-25 cursor-pointer"
+          className="w-7 h-7 rounded-lg bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:bg-white dark:hover:bg-white/10 hover:border-gray-200 transition-all active:scale-95 disabled:opacity-25 cursor-pointer"
         >
           <Minus className="w-3 h-3" />
         </button>
-        <span className={`w-5 text-center text-sm font-extrabold ${count > 0 ? 'text-carbon-dark' : 'text-gray-300'}`}>
+        <span className={`w-5 text-center text-sm font-extrabold ${count > 0 ? 'text-carbon-dark dark:text-white' : 'text-gray-300 dark:text-gray-600'}`}>
           {count}
         </span>
         <button
           type="button"
           onClick={onInc}
           disabled={!canInc}
-          className="w-7 h-7 rounded-lg bg-carbon-light border border-gray-100 flex items-center justify-center text-gray-500 hover:bg-white hover:border-gray-200 transition-all active:scale-95 disabled:opacity-25 cursor-pointer"
+          className="w-7 h-7 rounded-lg bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:bg-white dark:hover:bg-white/10 hover:border-gray-200 transition-all active:scale-95 disabled:opacity-25 cursor-pointer"
         >
           <Plus className="w-3 h-3" />
         </button>
@@ -122,8 +122,8 @@ export const Members: React.FC<MembersProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <Users className="w-4.5 h-4.5 text-apple-green" strokeWidth={2.5} />
-            <span className="text-sm font-extrabold text-carbon-dark">Integrantes</span>
-            <span className="w-5 h-5 rounded-lg bg-carbon-light text-gray-500 text-[10px] font-bold flex items-center justify-center border border-gray-100">
+            <span className="text-sm font-extrabold text-carbon-dark dark:text-white">Integrantes</span>
+            <span className="w-5 h-5 rounded-lg bg-carbon-light dark:bg-white/5 text-gray-500 dark:text-gray-300 text-[10px] font-bold flex items-center justify-center border border-gray-100 dark:border-white/10">
               {users.length}
             </span>
           </div>
@@ -135,7 +135,7 @@ export const Members: React.FC<MembersProps> = ({
           onClick={() => { setShowAddForm(!showAddForm); setNewSel(createEmptySelections()); }}
           className={`flex items-center gap-1.5 px-4 py-2.5 rounded-2xl font-extrabold text-xs cursor-pointer transition-all duration-200 shadow-sm ${
             showAddForm
-              ? 'bg-carbon-light text-gray-500 border border-gray-200'
+              ? 'bg-carbon-light dark:bg-white/5 text-gray-500 dark:text-gray-300 border border-gray-200 dark:border-white/10'
               : 'bg-apple-green text-carbon-dark hover:bg-apple-green-hover active:scale-95 shadow-green'
           }`}
         >
@@ -148,10 +148,10 @@ export const Members: React.FC<MembersProps> = ({
       {showAddForm && (
         <form
           onSubmit={handleAddSubmit}
-          className="bg-white rounded-3xl border border-gray-100 shadow-card p-5 space-y-5 animate-scale-up"
+          className="bg-white dark:bg-carbon-gray rounded-3xl border border-gray-100 dark:border-white/10 shadow-card p-5 space-y-5 animate-scale-up"
         >
           <div>
-            <p className="text-xs font-extrabold text-carbon-dark uppercase tracking-wider mb-3">Nuevo Integrante</p>
+            <p className="text-xs font-extrabold text-carbon-dark dark:text-white uppercase tracking-wider mb-3">Nuevo Integrante</p>
             <input
               type="text"
               required
@@ -159,24 +159,24 @@ export const Members: React.FC<MembersProps> = ({
               value={newMemberName}
               onChange={e => setNewMemberName(e.target.value)}
               placeholder="Nombre del nuevo integrante…"
-              className="w-full rounded-2xl border border-gray-200 bg-carbon-light py-3.5 px-4 text-sm font-semibold focus:border-apple-green focus:outline-none focus:ring-2 focus:ring-apple-green/15 placeholder-gray-300 text-carbon-dark transition-all"
+              className="w-full rounded-2xl border border-gray-200 dark:border-white/10 bg-carbon-light dark:bg-white/5 py-3.5 px-4 text-sm font-semibold focus:border-apple-green focus:outline-none focus:ring-2 focus:ring-apple-green/15 placeholder-gray-300 dark:placeholder-gray-600 text-carbon-dark dark:text-white transition-all"
             />
           </div>
 
           {/* Pastry picker */}
           <div className="space-y-1">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-extrabold text-carbon-dark">Elegí sus 4 bizcochos:</span>
+              <span className="text-xs font-extrabold text-carbon-dark dark:text-white">Elegí sus 4 bizcochos:</span>
               <span className={`text-xs font-black px-2.5 py-1 rounded-full transition-colors ${
                 newTotal === 4
                   ? 'bg-apple-green/10 text-apple-green border border-apple-green/20'
-                  : 'bg-gray-100 text-gray-400'
+                  : 'bg-gray-100 dark:bg-white/10 text-gray-400'
               }`}>
                 {newTotal} / 4
               </span>
             </div>
 
-            <div className="max-h-52 overflow-y-auto rounded-2xl bg-carbon-light border border-gray-100 px-4 py-1">
+            <div className="max-h-52 overflow-y-auto rounded-2xl bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 px-4 py-1">
               {BIZCOCHO_TYPES.map(type => (
                 <StepperRow
                   key={type}
@@ -191,7 +191,7 @@ export const Members: React.FC<MembersProps> = ({
           </div>
 
           {/* Hint */}
-          <p className="text-[10px] text-gray-400 font-semibold bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          <p className="text-[10px] text-gray-400 dark:text-amber-300/80 font-semibold bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl px-3 py-2">
             ⓘ El nuevo integrante entrará como 2° en la cola — no paga el próximo miércoles.
           </p>
 
@@ -208,8 +208,8 @@ export const Members: React.FC<MembersProps> = ({
 
       {/* ── Member Cards ── */}
       {users.length === 0 ? (
-        <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-12 text-center">
-          <Users className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+        <div className="bg-white dark:bg-carbon-gray rounded-3xl border border-dashed border-gray-200 dark:border-white/10 p-12 text-center">
+          <Users className="w-12 h-12 text-gray-200 dark:text-white/15 mx-auto mb-3" />
           <p className="text-sm font-bold text-gray-400">Sin integrantes</p>
         </div>
       ) : (
@@ -227,12 +227,12 @@ export const Members: React.FC<MembersProps> = ({
               <div
                 key={user.id}
                 id={`member-card-${user.id}`}
-                className={`bg-white rounded-3xl border shadow-card transition-all duration-300 overflow-hidden ${
+                className={`bg-white dark:bg-carbon-gray rounded-3xl border shadow-card transition-all duration-300 overflow-hidden ${
                   isEditing
                     ? 'border-apple-green ring-2 ring-apple-green/10'
                     : isMissing
-                      ? 'border-amber-200'
-                      : 'border-gray-100'
+                      ? 'border-amber-200 dark:border-amber-500/30'
+                      : 'border-gray-100 dark:border-white/10'
                 }`}
               >
                 {/* Card Header */}
@@ -245,20 +245,20 @@ export const Members: React.FC<MembersProps> = ({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-extrabold text-carbon-dark text-base leading-tight">{user.name}</span>
+                        <span className="font-extrabold text-carbon-dark dark:text-white text-base leading-tight">{user.name}</span>
                         {isMissing && (
-                          <span className="text-[9px] font-extrabold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+                          <span className="text-[9px] font-extrabold bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 px-2 py-0.5 rounded-full">
                             SIN ELEGIR
                           </span>
                         )}
                       </div>
                       {/* Stats pills */}
                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-carbon-light px-2 py-1 rounded-lg border border-gray-100">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-carbon-light dark:bg-white/5 px-2 py-1 rounded-lg border border-gray-100 dark:border-white/10">
                           <Eye className="w-3 h-3 text-apple-green" />
                           <span>{user.ingresosCount ?? 0} visitas</span>
                         </span>
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-carbon-light px-2 py-1 rounded-lg border border-gray-100">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-gray-400 bg-carbon-light dark:bg-white/5 px-2 py-1 rounded-lg border border-gray-100 dark:border-white/10">
                           <ShoppingBag className="w-3 h-3 text-apple-green" />
                           <span>{user.comprasCount ?? 0} compras</span>
                         </span>
@@ -271,13 +271,13 @@ export const Members: React.FC<MembersProps> = ({
                         <button
                           id={`btn-edit-member-${user.id}`}
                           onClick={() => startEdit(user)}
-                          className="w-8 h-8 rounded-xl bg-carbon-light hover:bg-apple-green/10 hover:border-apple-green/20 border border-gray-100 text-gray-400 hover:text-apple-green flex items-center justify-center transition-all cursor-pointer"
+                          className="w-8 h-8 rounded-xl bg-carbon-light dark:bg-white/5 hover:bg-apple-green/10 hover:border-apple-green/20 border border-gray-100 dark:border-white/10 text-gray-400 hover:text-apple-green flex items-center justify-center transition-all cursor-pointer"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
 
                         {deleteConfirmId === user.id ? (
-                          <div className="flex items-center gap-1 bg-red-50 rounded-xl border border-red-100 p-1 animate-scale-up">
+                          <div className="flex items-center gap-1 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-100 dark:border-red-500/20 p-1 animate-scale-up">
                             <button
                               id={`btn-confirm-delete-${user.id}`}
                               onClick={() => onDeleteUser(user.id)}
@@ -293,7 +293,7 @@ export const Members: React.FC<MembersProps> = ({
                           <button
                             id={`btn-delete-member-${user.id}`}
                             onClick={() => setDeleteConfirmId(user.id)}
-                            className="w-8 h-8 rounded-xl bg-carbon-light hover:bg-red-50 hover:border-red-100 border border-gray-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-all cursor-pointer"
+                            className="w-8 h-8 rounded-xl bg-carbon-light dark:bg-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 hover:border-red-100 border border-gray-100 dark:border-white/10 text-gray-400 hover:text-red-500 flex items-center justify-center transition-all cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -304,9 +304,9 @@ export const Members: React.FC<MembersProps> = ({
 
                   {/* Missing warning */}
                   {isMissing && !isEditing && (
-                    <div className="mt-3 flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-2xl px-3 py-2.5">
+                    <div className="mt-3 flex items-center gap-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-2xl px-3 py-2.5">
                       <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                      <p className="text-[11px] font-bold text-amber-700 leading-snug">
+                      <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300 leading-snug">
                         Falta que {user.name} indique cuáles bizcochos prefiere. Tocá el lápiz para editarlos.
                       </p>
                     </div>
@@ -320,7 +320,7 @@ export const Members: React.FC<MembersProps> = ({
                       {activeSel.map(({ type, count }) => (
                         <span
                           key={type}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-carbon-light border border-gray-100 text-[11px] font-bold text-carbon-dark"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 text-[11px] font-bold text-carbon-dark dark:text-white"
                         >
                           <span className="w-4 h-4 rounded-md bg-apple-green/15 text-apple-green text-[9px] font-black flex items-center justify-center border border-apple-green/15">
                             {count}
@@ -334,10 +334,10 @@ export const Members: React.FC<MembersProps> = ({
 
                 {/* EDITING STATE */}
                 {isEditing && tempSel && (
-                  <div className="border-t border-gray-100 px-5 py-4 space-y-4 animate-scale-up bg-carbon-light/30">
+                  <div className="border-t border-gray-100 dark:border-white/10 px-5 py-4 space-y-4 animate-scale-up bg-carbon-light/30 dark:bg-white/5">
                     {/* Progress bar */}
                     <div className="flex items-center gap-3">
-                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="flex-1 bg-gray-100 dark:bg-white/10 rounded-full h-1.5 overflow-hidden">
                         <div
                           className="h-full bg-apple-green rounded-full transition-all duration-400"
                           style={{ width: `${(tempTotal / 4) * 100}%` }}
@@ -349,7 +349,7 @@ export const Members: React.FC<MembersProps> = ({
                     </div>
 
                     {/* Steppers */}
-                    <div className="bg-white rounded-2xl border border-gray-100 px-4 py-1 max-h-52 overflow-y-auto">
+                    <div className="bg-white dark:bg-carbon-mid rounded-2xl border border-gray-100 dark:border-white/10 px-4 py-1 max-h-52 overflow-y-auto">
                       {BIZCOCHO_TYPES.map(type => (
                         <StepperRow
                           key={type}
@@ -364,7 +364,7 @@ export const Members: React.FC<MembersProps> = ({
 
                     {/* Validation */}
                     {tempTotal !== 4 && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-amber-600 font-bold">
+                      <div className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 font-bold">
                         <AlertCircle className="w-3.5 h-3.5" />
                         <span>Asigná {4 - tempTotal} bizcocho{4 - tempTotal !== 1 ? 's' : ''} más para guardar.</span>
                       </div>
@@ -383,7 +383,7 @@ export const Members: React.FC<MembersProps> = ({
                       <button
                         id={`btn-cancel-member-${user.id}`}
                         onClick={cancelEdit}
-                        className="px-5 py-3 border border-gray-200 bg-white text-gray-500 font-bold rounded-2xl transition-all text-sm cursor-pointer hover:bg-carbon-light"
+                        className="px-5 py-3 border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-500 dark:text-gray-300 font-bold rounded-2xl transition-all text-sm cursor-pointer hover:bg-carbon-light dark:hover:bg-white/10"
                       >
                         Cancelar
                       </button>
