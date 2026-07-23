@@ -35,6 +35,15 @@ export interface User {
   selections: BizcochoSelections;
   ingresosCount: number; // Number of times the user selected themselves on entry
   comprasCount: number;  // Number of times the user has bought bizcochos
+  needsOnboarding?: boolean; // True solo para altas nuevas: aún no eligió sus 4 bizcochos
+}
+
+export interface HistoryEntry {
+  date: string; // Miércoles al que corresponde el pedido (YYYY-MM-DD)
+  buyerId: string;
+  buyerName: string;
+  items: Partial<Record<BizcochoType, number>>;
+  total: number;
 }
 
 export interface AppState {
@@ -43,4 +52,5 @@ export interface AppState {
   lastProcessedWednesday: string; // Date of the last processed Wednesday (YYYY-MM-DD)
   lastReviewer: string; // Who was the last reviewer registered
   lastReviewTimestamp: string | null;
+  history: HistoryEntry[]; // Pedidos de miércoles pasados, más reciente al final
 }

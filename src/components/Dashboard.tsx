@@ -9,20 +9,32 @@ import {
   Clock,
   CalendarDays,
   ChevronDown,
+  ChevronUp,
   Users,
   X,
+  ArrowUpDown,
 } from 'lucide-react';
 
 interface DashboardProps {
   state: AppState;
   currentUser: string | null;
+  onReorderQueue: (newQueue: string[]) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReorderQueue }) => {
   const { users, buyerQueue, lastReviewer, lastReviewTimestamp } = state;
 
   const [showSchedule, setShowSchedule] = useState(false);
   const [expandedType, setExpandedType] = useState<BizcochoType | null>(null);
+  const [reordering, setReordering] = useState(false);
+
+  const moveInQueue = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= buyerQueue.length) return;
+    const next = [...buyerQueue];
+    [next[index], next[target]] = [next[target], next[index]];
+    onReorderQueue(next);
+  };
 
   const currentBuyer = users.find(u => u.id === buyerQueue[0]);
   const nextBuyer = users.find(u => u.id === buyerQueue[1]);
@@ -288,13 +300,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser }) => {
                 <CalendarDays className="w-4.5 h-4.5 text-apple-green" strokeWidth={2.5} />
                 <span className="text-base font-extrabold text-carbon-dark dark:text-white">¿Cuándo me toca?</span>
               </div>
-              <button
-                onClick={() => setShowSchedule(false)}
-                className="w-8 h-8 rounded-xl bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 flex items-center justify-center text-gray-400 hover:text-carbon-dark dark:hover:text-white transition-all cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setReordering(r => !r)}
+                  title="Reordenar turnos (vacaciones, cambios)"
+                  className={`flex items-center gap-1 px-2.5 h-8 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
+                    reordering
+                      ? 'bg-apple-green/15 text-apple-green border-apple-green/25'
+                      : 'bg-carbon-light dark:bg-white/5 text-gray-400 border-gray-100 dark:border-white/10 hover:text-carbon-dark dark:hover:text-white'
+                  }`}
+                >
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                  {reordering ? 'Listo' : 'Editar'}
+                </button>
+                <button
+                  onClick={() => setShowSchedule(false)}
+                  className="w-8 h-8 rounded-xl bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 flex items-center justify-center text-gray-400 hover:text-carbon-dark dark:hover:text-white transition-all cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+
+            {reordering && (
+              <div className="px-6 pt-3 -mb-1">
+                <p className="text-[10px] text-gray-400 dark:text-amber-300/80 font-semibold bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl px-3 py-2">
+                  ⓘ Usá las flechas para saltear a alguien de vacaciones o cambiar un turno con otro integrante.
+                </p>
+              </div>
+            )}
 
             <div className="px-4 py-3 max-h-[60vh] overflow-y-auto">
               <div className="space-y-1.5">
@@ -328,7 +362,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser }) => {
                           <span className="text-[10px] text-gray-400 font-semibold capitalize">{wednesdayFull(index)}</span>
                         </div>
                       </div>
-                      {isCurrent && (
+                      {reordering ? (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => moveInQueue(index, -1)}
+                            disabled={index === 0}
+                            className="w-7 h-7 rounded-lg bg-white dark:bg-white/10 border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:text-apple-green hover:border-apple-green/25 transition-all active:scale-95 disabled:opacity-25 cursor-pointer"
+                          >
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => moveInQueue(index, 1)}
+                            disabled={index === buyerQueue.length - 1}
+                            className="w-7 h-7 rounded-lg bg-white dark:bg-white/10 border border-gray-200 dark:border-white/10 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:text-apple-green hover:border-apple-green/25 transition-all active:scale-95 disabled:opacity-25 cursor-pointer"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : isCurrent && (
                         <span className="text-[9px] font-black text-apple-green uppercase tracking-wider flex-shrink-0">Ahora</span>
                       )}
                     </div>

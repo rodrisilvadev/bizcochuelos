@@ -139,6 +139,13 @@ html.dark .glass-hero {
   0%, 100% { transform: translateY(0px); }
   50%       { transform: translateY(-4px); }
 }
+@keyframes confettiFall {
+  0%   { transform: translateY(-10vh) rotate(0deg); opacity: 0; }
+  8%   { opacity: 1; }
+  100% { transform: translateY(105vh) rotate(600deg); opacity: 0.9; }
+}
+
+.confetti-piece       { position: fixed; top: 0; animation: confettiFall linear forwards; pointer-events: none; }
 
 .animate-fade-in      { animation: fadeIn 0.45s cubic-bezier(0.16,1,0.3,1) both; }
 .animate-fade-up      { animation: fadeUp 0.5s cubic-bezier(0.16,1,0.3,1) both; }

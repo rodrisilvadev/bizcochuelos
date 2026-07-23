@@ -6,6 +6,8 @@ import {
   dbAddUser,
   dbUpdateUserSelections,
   dbDeleteUser,
+  dbCompleteOnboarding,
+  dbReorderQueue,
   loadFromCloud,
   saveAppState,
 } from './services/db';
@@ -14,15 +16,20 @@ import { BIZCOCHO_TYPES } from './types';
 import { Dashboard } from './components/Dashboard';
 import { Members } from './components/Members';
 import { LoginModal } from './components/LoginModal';
-import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon } from 'lucide-react';
+import { WelcomeModal } from './components/WelcomeModal';
+import { RulesModal } from './components/RulesModal';
+import { History } from './components/History';
+import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, History as HistoryIcon } from 'lucide-react';
 
 type Theme = 'light' | 'dark';
+const CURRENT_USER_KEY = 'bizcochuelos_current_user';
 
 function App() {
   const [state, setState] = useState<AppState>(() => getAppState());
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'members'>('dashboard');
+  const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem(CURRENT_USER_KEY));
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history'>('dashboard');
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [showRulesModal, setShowRulesModal] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('bizcochuelos_theme');
     if (saved === 'light' || saved === 'dark') return saved;
@@ -54,6 +61,14 @@ function App() {
     });
   }, []);
 
+  // Si el usuario logueado (recordado en localStorage) fue borrado del
+  // grupo, no lo dejamos "logueado" en el limbo.
+  useEffect(() => {
+    if (currentUser && state.users.length > 0 && !state.users.some(u => u.id === currentUser)) {
+      setCurrentUser(null);
+    }
+  }, [currentUser, state.users]);
+
   // Tiempo real: refrescar el estado compartido cada 15 s.
   useEffect(() => {
     const id = setInterval(async () => {
@@ -70,13 +85,17 @@ function App() {
     const newState = dbRecordUserVisit(userId);
     setState(newState);
     setCurrentUser(userId);
+    localStorage.setItem(CURRENT_USER_KEY, userId);
   };
 
-  const handleLogout = () => setCurrentUser(null);
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem(CURRENT_USER_KEY);
+  };
 
-  const handleAddUser = (name: string, selections: BizcochoSelections) => {
+  const handleAddUser = (name: string) => {
     markLocalWrite();
-    setState(dbAddUser(name, selections));
+    setState(dbAddUser(name));
   };
 
   const handleUpdateUserSelections = (userId: string, selections: BizcochoSelections) => {
@@ -84,10 +103,20 @@ function App() {
     setState(dbUpdateUserSelections(userId, selections));
   };
 
+  const handleCompleteOnboarding = (userId: string, selections: BizcochoSelections) => {
+    markLocalWrite();
+    setState(dbCompleteOnboarding(userId, selections));
+  };
+
+  const handleReorderQueue = (newQueue: string[]) => {
+    markLocalWrite();
+    setState(dbReorderQueue(newQueue));
+  };
+
   const handleDeleteUser = (userId: string) => {
     markLocalWrite();
     setState(dbDeleteUser(userId));
-    if (currentUser === userId) setCurrentUser(null);
+    if (currentUser === userId) handleLogout();
   };
 
   const activeUserObj = state.users.find(u => u.id === currentUser);
@@ -112,6 +141,7 @@ function App() {
   const grandTotal = activeTotals.reduce((s, { count }) => s + count, 0);
 
   const currentBuyer = state.users.find(u => u.id === state.buyerQueue[0]);
+  const onboarding = !!(activeUserObj && activeUserObj.needsOnboarding);
 
   return (
     <div className="min-h-screen bg-carbon-light dark:bg-[#0b0b0c] flex flex-col font-sans selection:bg-apple-green/20 selection:text-carbon-dark">
@@ -120,6 +150,17 @@ function App() {
       {currentUser === null && (
         <LoginModal users={state.users} onSelectUser={handleSelectUser} />
       )}
+
+      {/* WELCOME MODAL — alta nueva eligiendo sus bizcochos por primera vez */}
+      {activeUserObj && onboarding && (
+        <WelcomeModal
+          user={activeUserObj}
+          onComplete={selections => handleCompleteOnboarding(activeUserObj.id, selections)}
+        />
+      )}
+
+      {/* RULES MODAL — mandamientos bizcochísticos */}
+      {showRulesModal && <RulesModal onClose={() => setShowRulesModal(false)} />}
 
       {/* ORDER MODAL — lista para la panadería */}
       {showOrderModal && (
@@ -211,6 +252,16 @@ function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Mandamientos bizcochísticos */}
+            <button
+              onClick={() => setShowRulesModal(true)}
+              className="w-8 h-8 rounded-full bg-carbon-light dark:bg-white/10 border border-gray-100 dark:border-white/10 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:text-carbon-dark dark:hover:text-white hover:border-gray-200 transition-all cursor-pointer"
+              title="Los Mandamientos Bizcochísticos"
+              aria-label="Ver reglas del grupo"
+            >
+              <ScrollText className="w-4 h-4" />
+            </button>
+
             {/* Toggle claro / oscuro */}
             <button
               onClick={toggleTheme}
@@ -238,35 +289,39 @@ function App() {
 
       {/* MAIN */}
       <main className="flex-1 max-w-2xl w-full mx-auto px-4 pt-5 pb-28">
-        {activeTab === 'dashboard'
-          ? <Dashboard state={state} currentUser={currentUser} />
-          : <Members
-              users={state.users}
-              onAddUser={handleAddUser}
-              onUpdateUserSelections={handleUpdateUserSelections}
-              onDeleteUser={handleDeleteUser}
-            />
-        }
+        {activeTab === 'dashboard' && <Dashboard state={state} currentUser={currentUser} onReorderQueue={handleReorderQueue} />}
+        {activeTab === 'members' && (
+          <Members
+            users={state.users}
+            onAddUser={handleAddUser}
+            onUpdateUserSelections={handleUpdateUserSelections}
+            onDeleteUser={handleDeleteUser}
+          />
+        )}
+        {activeTab === 'history' && <History history={state.history} />}
       </main>
 
       {/* FAB — sticky "Lista Panadería" (mismo estilo glass-hero que la card del turno) */}
-      <button
-        onClick={() => setShowOrderModal(true)}
-        className="glass-hero fixed right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-2xl text-white font-extrabold text-xs shadow-lifted hover:brightness-110 active:scale-95 transition-all duration-200 cursor-pointer"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 76px)' }}
-        title="Ver lista completa para la panadería"
-      >
-        <ShoppingBag className="w-4 h-4 text-apple-green" strokeWidth={2.5} />
-        <span>{grandTotal} bizcochos</span>
-      </button>
+      {!onboarding && (
+        <button
+          onClick={() => setShowOrderModal(true)}
+          className="glass-hero fixed right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-2xl text-white font-extrabold text-xs shadow-lifted hover:brightness-110 active:scale-95 transition-all duration-200 cursor-pointer"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 76px)' }}
+          title="Ver lista completa para la panadería"
+        >
+          <ShoppingBag className="w-4 h-4 text-apple-green" strokeWidth={2.5} />
+          <span>{grandTotal} bizcochos</span>
+        </button>
+      )}
 
       {/* BOTTOM TAB BAR */}
+      {!onboarding && (
       <nav className="fixed bottom-0 left-0 right-0 z-40 glassmorphism border-t border-white/60 shadow-glass">
-        <div className="max-w-2xl mx-auto px-6 py-2 flex items-center justify-around">
+        <div className="max-w-2xl mx-auto px-4 py-2 flex items-center justify-around">
           <button
             id="tab-btn-dashboard"
             onClick={() => setActiveTab('dashboard')}
-            className={`relative flex flex-col items-center gap-1 px-6 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
+            className={`relative flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
               activeTab === 'dashboard' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'
             }`}
           >
@@ -283,7 +338,7 @@ function App() {
           <button
             id="tab-btn-members"
             onClick={() => setActiveTab('members')}
-            className={`relative flex flex-col items-center gap-1 px-6 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
+            className={`relative flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
               activeTab === 'members' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'
             }`}
           >
@@ -296,9 +351,27 @@ function App() {
             </span>
             {activeTab === 'members' && <div className="nav-active-indicator" />}
           </button>
+
+          <button
+            id="tab-btn-history"
+            onClick={() => setActiveTab('history')}
+            className={`relative flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
+              activeTab === 'history' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'
+            }`}
+          >
+            {activeTab === 'history' && (
+              <div className="absolute -inset-1 bg-apple-green/10 rounded-xl" />
+            )}
+            <HistoryIcon className={`w-5 h-5 relative z-10 transition-transform duration-250 ${activeTab === 'history' ? 'text-carbon-dark dark:text-white scale-110' : ''}`} strokeWidth={activeTab === 'history' ? 2.5 : 1.8} />
+            <span className={`text-[10px] font-bold relative z-10 ${activeTab === 'history' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
+              Historial
+            </span>
+            {activeTab === 'history' && <div className="nav-active-indicator" />}
+          </button>
         </div>
         <div className="h-safe-area-inset-bottom bg-transparent" style={{ height: 'env(safe-area-inset-bottom, 0px)' }} />
       </nav>
+      )}
     </div>
   );
 }

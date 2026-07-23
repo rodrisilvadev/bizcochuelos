@@ -1,4 +1,4 @@
-import type { AppState, User, BizcochoSelections } from '../types';
+import type { AppState, User, BizcochoSelections, HistoryEntry } from '../types';
 import { BIZCOCHO_TYPES } from '../types';
 
 const LOCAL_STORAGE_KEY = 'bizcochuelos_app_state_v4';
@@ -68,10 +68,18 @@ const INITIAL_STATE: AppState = {
   buyerQueue: ['ignacio', 'rodri', 'pablo', 'bernardo', 'mauri', 'fede', 'javier', 'fabri'],
   lastProcessedWednesday: '2026-06-24',
   lastReviewer: '',
-  lastReviewTimestamp: null
+  lastReviewTimestamp: null,
+  history: []
 };
 
 // ── Sincronización con el backend compartido ───────────────────────────────
+
+// Rellena campos agregados después del primer despliegue, para que estados
+// guardados antes de esa fecha (localStorage o Gist viejo) no rompan la app.
+const normalizeState = (state: AppState): AppState => {
+  if (!Array.isArray(state.history)) state.history = [];
+  return state;
+};
 
 export const loadFromCloud = async (): Promise<AppState | null> => {
   try {
@@ -80,7 +88,7 @@ export const loadFromCloud = async (): Promise<AppState | null> => {
     if (!res.ok) return null;
     const data = await res.json();
     if (!data) return null;
-    return data as AppState;
+    return normalizeState(data as AppState);
   } catch {
     return null;
   }
@@ -103,7 +111,7 @@ export const getAppState = (): AppState => {
       saveAppState(INITIAL_STATE);
       return INITIAL_STATE;
     }
-    return JSON.parse(data);
+    return normalizeState(JSON.parse(data));
   } catch {
     return INITIAL_STATE;
   }
@@ -126,6 +134,8 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
   let nextWednesday = getNextWednesday(currentWednesday);
   let stateChanged = false;
 
+  if (!Array.isArray(state.history)) state.history = [];
+
   // Solo rotamos por miércoles que ya quedaron ESTRICTAMENTE en el pasado.
   // Usar "<" (no "<=") evita adelantar el turno el propio miércoles de compra:
   // el comprador de hoy sigue siendo el head hasta que el día termina.
@@ -135,7 +145,26 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
       if (buyerId) {
         state.buyerQueue.push(buyerId);
         const buyerUser = state.users.find(u => u.id === buyerId);
-        if (buyerUser) buyerUser.comprasCount = (buyerUser.comprasCount || 0) + 1;
+        if (buyerUser) {
+          buyerUser.comprasCount = (buyerUser.comprasCount || 0) + 1;
+
+          // Guardamos una foto del pedido de esa semana para el historial.
+          const items: HistoryEntry['items'] = {};
+          let total = 0;
+          state.users.forEach(user => {
+            BIZCOCHO_TYPES.forEach(type => {
+              const count = user.selections[type] || 0;
+              if (count > 0) {
+                items[type] = (items[type] || 0) + count;
+                total += count;
+              }
+            });
+          });
+
+          const entry: HistoryEntry = { date: nextWednesday, buyerId, buyerName: buyerUser.name, items, total };
+          state.history.push(entry);
+          if (state.history.length > 60) state.history.shift();
+        }
       }
       stateChanged = true;
     }
@@ -151,10 +180,16 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
   return state;
 };
 
-export const dbAddUser = (name: string, selections: BizcochoSelections): AppState => {
+// Alta nueva: entra a la cola en 2° lugar (no compra el próximo miércoles,
+// le toca el siguiente) y queda "needsOnboarding" hasta que ella misma elija
+// sus 4 bizcochos al ingresar por primera vez.
+export const dbAddUser = (name: string): AppState => {
   const state = getAppState();
   const newId = `user-${Date.now()}`;
-  const newUser: User = { id: newId, name: name.trim(), selections, ingresosCount: 0, comprasCount: 0 };
+  const newUser: User = {
+    id: newId, name: name.trim(), selections: createEmptySelections(),
+    ingresosCount: 0, comprasCount: 0, needsOnboarding: true,
+  };
   state.users.push(newUser);
   if (state.buyerQueue.length >= 2) state.buyerQueue.splice(1, 0, newId);
   else state.buyerQueue.push(newId);
@@ -166,6 +201,27 @@ export const dbUpdateUserSelections = (userId: string, selections: BizcochoSelec
   const state = getAppState();
   const user = state.users.find(u => u.id === userId);
   if (user) { user.selections = selections; saveAppState(state); }
+  return state;
+};
+
+export const dbCompleteOnboarding = (userId: string, selections: BizcochoSelections): AppState => {
+  const state = getAppState();
+  const user = state.users.find(u => u.id === userId);
+  if (user) {
+    user.selections = selections;
+    user.needsOnboarding = false;
+    saveAppState(state);
+  }
+  return state;
+};
+
+// Gestión manual de turnos: reordenar la cola (para saltear a alguien de
+// vacaciones o hacer un swap entre dos integrantes). No toca comprasCount,
+// porque nadie compró todavía.
+export const dbReorderQueue = (newQueue: string[]): AppState => {
+  const state = getAppState();
+  state.buyerQueue = newQueue;
+  saveAppState(state);
   return state;
 };
 

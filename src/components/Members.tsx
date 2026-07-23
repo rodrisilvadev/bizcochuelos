@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import type { User, BizcochoSelections, BizcochoType } from '../types';
 import { BIZCOCHO_TYPES } from '../types';
-import { createEmptySelections } from '../services/db';
+import { PastryPicker } from './PastryPicker';
 import {
   UserPlus,
   Trash2,
   Edit3,
-  Plus,
-  Minus,
   Check,
   X,
   Users,
@@ -19,7 +17,7 @@ import {
 
 interface MembersProps {
   users: User[];
-  onAddUser: (name: string, selections: BizcochoSelections) => void;
+  onAddUser: (name: string) => void;
   onUpdateUserSelections: (userId: string, selections: BizcochoSelections) => void;
   onDeleteUser: (userId: string) => void;
 }
@@ -42,24 +40,17 @@ export const Members: React.FC<MembersProps> = ({
 }) => {
   const [newMemberName, setNewMemberName] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newSel, setNewSel] = useState<BizcochoSelections>(() => createEmptySelections());
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [tempSel, setTempSel] = useState<BizcochoSelections | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const sumOf = (sel: BizcochoSelections) => Object.values(sel).reduce((s, v) => s + v, 0);
 
-  // ── New member helpers ──
-  const newTotal = sumOf(newSel);
-  const incNew = (t: BizcochoType) => { if (newTotal < 4) setNewSel(p => ({ ...p, [t]: p[t] + 1 })); };
-  const decNew = (t: BizcochoType) => { if (newSel[t] > 0) setNewSel(p => ({ ...p, [t]: p[t] - 1 })); };
-
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMemberName.trim() || newTotal !== 4) return;
-    onAddUser(newMemberName, newSel);
+    if (!newMemberName.trim()) return;
+    onAddUser(newMemberName);
     setNewMemberName('');
-    setNewSel(createEmptySelections());
     setShowAddForm(false);
   };
 
@@ -77,42 +68,6 @@ export const Members: React.FC<MembersProps> = ({
   const tempTotal = tempSel ? sumOf(tempSel) : 0;
   const incTemp = (t: BizcochoType) => { if (tempSel && tempTotal < 4) setTempSel(p => ({ ...p!, [t]: p![t] + 1 })); };
   const decTemp = (t: BizcochoType) => { if (tempSel && tempSel[t] > 0) setTempSel(p => ({ ...p!, [t]: p![t] - 1 })); };
-
-  // Stepper row component
-  const StepperRow = ({
-    type, count, onInc, onDec, canInc
-  }: { type: BizcochoType; count: number; onInc: () => void; onDec: () => void; canInc: boolean }) => (
-    <div className="flex items-center justify-between py-2.5 px-1 border-b border-gray-50 dark:border-white/5 last:border-0">
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        {count > 0 && <div className="w-1.5 h-1.5 rounded-full bg-apple-green flex-shrink-0" />}
-        {count === 0 && <div className="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-white/15 flex-shrink-0" />}
-        <span className={`text-xs font-semibold truncate ${count > 0 ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
-          {type}
-        </span>
-      </div>
-      <div className="flex items-center gap-2.5 flex-shrink-0">
-        <button
-          type="button"
-          onClick={onDec}
-          disabled={count <= 0}
-          className="w-7 h-7 rounded-lg bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:bg-white dark:hover:bg-white/10 hover:border-gray-200 transition-all active:scale-95 disabled:opacity-25 cursor-pointer"
-        >
-          <Minus className="w-3 h-3" />
-        </button>
-        <span className={`w-5 text-center text-sm font-extrabold ${count > 0 ? 'text-carbon-dark dark:text-white' : 'text-gray-300 dark:text-gray-600'}`}>
-          {count}
-        </span>
-        <button
-          type="button"
-          onClick={onInc}
-          disabled={!canInc}
-          className="w-7 h-7 rounded-lg bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 flex items-center justify-center text-gray-500 dark:text-gray-300 hover:bg-white dark:hover:bg-white/10 hover:border-gray-200 transition-all active:scale-95 disabled:opacity-25 cursor-pointer"
-        >
-          <Plus className="w-3 h-3" />
-        </button>
-      </div>
-    </div>
-  );
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -132,7 +87,7 @@ export const Members: React.FC<MembersProps> = ({
 
         <button
           id="btn-toggle-add-member"
-          onClick={() => { setShowAddForm(!showAddForm); setNewSel(createEmptySelections()); }}
+          onClick={() => setShowAddForm(!showAddForm)}
           className={`flex items-center gap-1.5 px-4 py-2.5 rounded-2xl font-extrabold text-xs cursor-pointer transition-all duration-200 shadow-sm ${
             showAddForm
               ? 'bg-carbon-light dark:bg-white/5 text-gray-500 dark:text-gray-300 border border-gray-200 dark:border-white/10'
@@ -163,42 +118,15 @@ export const Members: React.FC<MembersProps> = ({
             />
           </div>
 
-          {/* Pastry picker */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-extrabold text-carbon-dark dark:text-white">Elegí sus 4 bizcochos:</span>
-              <span className={`text-xs font-black px-2.5 py-1 rounded-full transition-colors ${
-                newTotal === 4
-                  ? 'bg-apple-green/10 text-apple-green border border-apple-green/20'
-                  : 'bg-gray-100 dark:bg-white/10 text-gray-400'
-              }`}>
-                {newTotal} / 4
-              </span>
-            </div>
-
-            <div className="max-h-52 overflow-y-auto rounded-2xl bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 px-4 py-1">
-              {BIZCOCHO_TYPES.map(type => (
-                <StepperRow
-                  key={type}
-                  type={type}
-                  count={newSel[type]}
-                  onInc={() => incNew(type)}
-                  onDec={() => decNew(type)}
-                  canInc={newTotal < 4}
-                />
-              ))}
-            </div>
-          </div>
-
           {/* Hint */}
           <p className="text-[10px] text-gray-400 dark:text-amber-300/80 font-semibold bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl px-3 py-2">
-            ⓘ El nuevo integrante entrará como 2° en la cola — no paga el próximo miércoles.
+            ⓘ Entra como 2° en la cola — no paga el próximo miércoles, le toca el siguiente. Va a elegir sus 4 bizcochos la primera vez que ingrese a la app.
           </p>
 
           <button
             type="submit"
             id="btn-submit-new-member"
-            disabled={!newMemberName.trim() || newTotal !== 4}
+            disabled={!newMemberName.trim()}
             className="w-full py-3.5 bg-apple-green hover:bg-apple-green-hover disabled:opacity-40 disabled:cursor-not-allowed text-carbon-dark font-extrabold rounded-2xl transition-all shadow-sm text-sm cursor-pointer flex items-center justify-center gap-2"
           >
             <Check className="w-4 h-4" /> Agregar Integrante
@@ -349,18 +277,7 @@ export const Members: React.FC<MembersProps> = ({
                     </div>
 
                     {/* Steppers */}
-                    <div className="bg-white dark:bg-carbon-mid rounded-2xl border border-gray-100 dark:border-white/10 px-4 py-1 max-h-52 overflow-y-auto">
-                      {BIZCOCHO_TYPES.map(type => (
-                        <StepperRow
-                          key={type}
-                          type={type}
-                          count={tempSel[type]}
-                          onInc={() => incTemp(type)}
-                          onDec={() => decTemp(type)}
-                          canInc={tempTotal < 4}
-                        />
-                      ))}
-                    </div>
+                    <PastryPicker selections={tempSel} total={tempTotal} max={4} onInc={incTemp} onDec={decTemp} />
 
                     {/* Validation */}
                     {tempTotal !== 4 && (
