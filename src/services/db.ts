@@ -93,31 +93,26 @@ const CEMETERY_REASONS: Record<string, string> = {
   'Pablo': 'De un día para el otro desapareció, nadie sabe su paradero. Dicen que lo vieron vendiendo nuestros bizcochos con un sombrero con orejas redondas.',
 };
 
-const LEGACY_CEMETERY_SEED: { name: string; month: string }[] = [
+const KNOWN_DEPARTURES: { name: string; month: string }[] = [
   { name: 'Vanessa', month: '2025-06' },
   { name: 'Mati', month: '2025-12' },
   { name: 'Franco', month: '2026-04' },
   { name: 'Maxi', month: '2026-05' },
+  { name: 'Fede', month: '2026-06' },
+  { name: 'Pablo', month: '2026-07' },
 ];
 
-// Saca a un usuario todavía activo y lo manda al cementerio, si no está ya.
-const retireIntoCemetery = (state: AppState, userId: string, month: string): boolean => {
-  const user = state.users.find(u => u.id === userId);
-  if (!user) return false;
-  if (!state.cemetery.some(entry => entry.name === user.name)) {
-    state.cemetery.push({ name: user.name, month, reason: CEMETERY_REASONS[user.name] ?? '' });
-  }
-  state.users = state.users.filter(u => u.id !== userId);
-  state.buyerQueue = state.buyerQueue.filter(id => id !== userId);
-  return true;
-};
+// De la lista de arriba, los únicos que alguna vez existieron como usuario
+// real (con id) en esta app, y por lo tanto los únicos que hay que sacar de
+// la lista activa si todavía figuran ahí.
+const KNOWN_DEPARTURE_IDS = ['fede', 'pablo'];
 
 // Migración para el estado ya guardado en la nube (o en localStorage) desde
-// antes de esta funcionalidad, o de antes de que existiera el campo `reason`:
-// siembra las bajas históricas, da de baja a Fede y Pablo (confirmado), y
-// repara el motivo de cualquier entrada que ya exista sin él. Cada paso
-// revisa por su cuenta si hace falta — así es idempotente sin depender de
-// una única marca de "ya corrió".
+// antes de esta funcionalidad. Cada paso revisa por su cuenta si hace
+// falta — así es idempotente sin depender de una única marca de "ya corrió",
+// y es seguro correrlo aunque un paso anterior haya sacado a alguien de
+// `users` sin llegar a registrar su entrada en el cementerio (pasó una vez:
+// no dependas de que ambas cosas ocurran siempre juntas).
 //
 // IMPORTANTE: igual que checkAndRotateWednesday, esto NUNCA debe llamarse
 // sobre una copia local no verificada como fresca — devuelve `true` cuando
@@ -125,16 +120,26 @@ const retireIntoCemetery = (state: AppState, userId: string, month: string): boo
 export const applyCemeteryMigration = (state: AppState): boolean => {
   let changed = false;
 
-  for (const seed of LEGACY_CEMETERY_SEED) {
-    if (!state.cemetery.some(entry => entry.name === seed.name)) {
-      state.cemetery.push({ ...seed, reason: CEMETERY_REASONS[seed.name] });
+  // 1) Asegurar que cada baja conocida tenga su entrada en el cementerio,
+  //    exista o no todavía como usuario activo.
+  for (const departure of KNOWN_DEPARTURES) {
+    if (!state.cemetery.some(entry => entry.name === departure.name)) {
+      state.cemetery.push({ ...departure, reason: CEMETERY_REASONS[departure.name] ?? '' });
       changed = true;
     }
   }
 
-  if (retireIntoCemetery(state, 'fede', '2026-06')) changed = true;
-  if (retireIntoCemetery(state, 'pablo', '2026-07')) changed = true;
+  // 2) Sacarlos de la lista activa si todavía figuran ahí.
+  for (const id of KNOWN_DEPARTURE_IDS) {
+    if (state.users.some(u => u.id === id)) {
+      state.users = state.users.filter(u => u.id !== id);
+      state.buyerQueue = state.buyerQueue.filter(uid => uid !== id);
+      changed = true;
+    }
+  }
 
+  // 3) Reparar el motivo de cualquier entrada que ya exista sin él (de una
+  //    versión anterior a que existiera el campo `reason`).
   for (const entry of state.cemetery) {
     if (!entry.reason && CEMETERY_REASONS[entry.name]) {
       entry.reason = CEMETERY_REASONS[entry.name];
