@@ -3,6 +3,7 @@ import type { User, BizcochoSelections, BizcochoType } from '../types';
 import { BIZCOCHO_TYPES, SELECTIONS_PER_USER } from '../types';
 import { PastryPicker } from './PastryPicker';
 import { EmptyState } from './EmptyState';
+import { TombstoneIcon } from './TombstoneIcon';
 import { getAvatarColor } from '../utils/avatar';
 import {
   UserPlus,
@@ -21,7 +22,7 @@ interface MembersProps {
   users: User[];
   onAddUser: (name: string) => void;
   onUpdateUserSelections: (userId: string, selections: BizcochoSelections) => void;
-  onDeleteUser: (userId: string) => void;
+  onDeleteUser: (userId: string, reason: string) => void;
 }
 
 export const Members: React.FC<MembersProps> = ({
@@ -34,7 +35,8 @@ export const Members: React.FC<MembersProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [tempSel, setTempSel] = useState<BizcochoSelections | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [deathReason, setDeathReason] = useState('');
 
   const sumOf = (sel: BizcochoSelections) => Object.values(sel).reduce((s, v) => s + v, 0);
 
@@ -60,6 +62,15 @@ export const Members: React.FC<MembersProps> = ({
   const tempTotal = tempSel ? sumOf(tempSel) : 0;
   const incTemp = (t: BizcochoType) => { if (tempSel && tempTotal < SELECTIONS_PER_USER) setTempSel(p => ({ ...p!, [t]: p![t] + 1 })); };
   const decTemp = (t: BizcochoType) => { if (tempSel && tempSel[t] > 0) setTempSel(p => ({ ...p!, [t]: p![t] - 1 })); };
+
+  // ── Baja (con motivo, para el Cementerio Harinoso) ──
+  const openDeleteModal = (user: User) => { setDeletingUser(user); setDeathReason(''); };
+  const closeDeleteModal = () => { setDeletingUser(null); setDeathReason(''); };
+  const confirmDelete = () => {
+    if (!deletingUser || !deathReason.trim()) return;
+    onDeleteUser(deletingUser.id, deathReason.trim());
+    closeDeleteModal();
+  };
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -193,28 +204,13 @@ export const Members: React.FC<MembersProps> = ({
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
 
-                        {deleteConfirmId === user.id ? (
-                          <div className="flex items-center gap-1 bg-red-50 dark:bg-red-500/10 rounded-xl border border-red-100 dark:border-red-500/20 p-1 animate-scale-up">
-                            <button
-                              id={`btn-confirm-delete-${user.id}`}
-                              onClick={() => onDeleteUser(user.id)}
-                              className="px-2.5 py-1 bg-red-500 text-white font-extrabold rounded-lg text-[10px] hover:bg-red-600 transition-colors cursor-pointer"
-                            >Sí</button>
-                            <button
-                              id={`btn-cancel-delete-${user.id}`}
-                              onClick={() => setDeleteConfirmId(null)}
-                              className="p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
-                            ><X className="w-3 h-3" /></button>
-                          </div>
-                        ) : (
-                          <button
-                            id={`btn-delete-member-${user.id}`}
-                            onClick={() => setDeleteConfirmId(user.id)}
-                            className="w-8 h-8 rounded-xl bg-carbon-light dark:bg-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 hover:border-red-100 border border-gray-100 dark:border-white/10 text-gray-400 hover:text-red-500 flex items-center justify-center transition-all cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        <button
+                          id={`btn-delete-member-${user.id}`}
+                          onClick={() => openDeleteModal(user)}
+                          className="w-8 h-8 rounded-xl bg-carbon-light dark:bg-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 hover:border-red-100 border border-gray-100 dark:border-white/10 text-gray-400 hover:text-red-500 flex items-center justify-center transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     )}
                   </div>
@@ -299,6 +295,66 @@ export const Members: React.FC<MembersProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── MODAL DE BAJA: pide el motivo antes de mandar al Cementerio Harinoso ── */}
+      {deletingUser && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col justify-end"
+          onClick={closeDeleteModal}
+        >
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative bg-white dark:bg-carbon-gray rounded-t-3xl shadow-2xl max-w-2xl w-full mx-auto animate-slide-bottom"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-gray-200 dark:bg-white/15" />
+            </div>
+
+            <div className="px-6 pt-3 pb-4 flex items-center gap-2 border-b border-gray-100 dark:border-white/10">
+              <TombstoneIcon className="w-4 h-4.5 text-red-400 flex-shrink-0" />
+              <div>
+                <p className="text-base font-extrabold text-carbon-dark dark:text-white">
+                  Dar de baja a {deletingUser.name}
+                </p>
+                <p className="text-[11px] text-gray-400 font-semibold mt-0.5">
+                  Va al Cementerio Harinoso — contá cómo fue.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 space-y-3">
+              <textarea
+                autoFocus
+                id="input-death-reason"
+                value={deathReason}
+                onChange={e => setDeathReason(e.target.value)}
+                placeholder="¿Cuál fue su motivo de deceso?"
+                rows={3}
+                className="w-full rounded-2xl border border-gray-200 dark:border-white/10 bg-carbon-light dark:bg-white/5 py-3 px-4 text-sm font-semibold focus:border-apple-green focus:outline-none focus:ring-2 focus:ring-apple-green/15 placeholder-gray-300 dark:placeholder-gray-600 text-carbon-dark dark:text-white transition-all resize-none"
+              />
+
+              <div className="flex gap-2">
+                <button
+                  id="btn-confirm-delete"
+                  onClick={confirmDelete}
+                  disabled={!deathReason.trim()}
+                  className="flex-1 py-3 bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-extrabold rounded-2xl transition-all text-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" /> Dar de baja
+                </button>
+                <button
+                  id="btn-cancel-delete"
+                  onClick={closeDeleteModal}
+                  className="px-5 py-3 border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-500 dark:text-gray-300 font-bold rounded-2xl transition-all text-sm cursor-pointer hover:bg-carbon-light dark:hover:bg-white/10"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -54,6 +54,7 @@ export interface HistoryEntry {
 export interface CemeteryEntry {
   name: string;
   month: string; // Mes de la baja (YYYY-MM)
+  reason: string; // Epitafio / causa de la baja
 }
 
 export interface AppState {

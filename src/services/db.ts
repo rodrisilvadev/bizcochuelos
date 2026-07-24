@@ -1,4 +1,4 @@
-import type { AppState, User, BizcochoSelections, HistoryEntry, CemeteryEntry } from '../types';
+import type { AppState, User, BizcochoSelections, HistoryEntry } from '../types';
 import { BIZCOCHO_TYPES } from '../types';
 
 const LOCAL_STORAGE_KEY = 'bizcochuelos_app_state_v4';
@@ -35,11 +35,6 @@ const INITIAL_STATE: AppState = {
       ingresosCount: 0, comprasCount: 1
     },
     {
-      id: 'pablo', name: 'Pablo',
-      selections: { 'Dulce de Leche (ddl)': 2, 'Queso': 1, 'Margarita': 1, 'Vigilante': 0, 'Membrillo': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
-      ingresosCount: 0, comprasCount: 0
-    },
-    {
       id: 'bernardo', name: 'Bernardo',
       selections: { 'Queso': 1, 'Jamón': 1, 'Margarita': 1, 'Membrillo': 1, 'Vigilante': 0, 'Dulce de Leche (ddl)': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 0
@@ -60,17 +55,18 @@ const INITIAL_STATE: AppState = {
       ingresosCount: 0, comprasCount: 0
     }
   ],
-  buyerQueue: ['ignacio', 'rodri', 'pablo', 'bernardo', 'mauri', 'javier', 'fabri'],
+  buyerQueue: ['ignacio', 'rodri', 'bernardo', 'mauri', 'javier', 'fabri'],
   lastProcessedWednesday: '2026-06-24',
   lastReviewer: '',
   lastReviewTimestamp: null,
   history: [],
   cemetery: [
-    { name: 'Vanessa', month: '2025-06' },
-    { name: 'Mati', month: '2025-12' },
-    { name: 'Franco', month: '2026-04' },
-    { name: 'Maxi', month: '2026-05' },
-    { name: 'Fede', month: '2026-06' },
+    { name: 'Vanessa', month: '2025-06', reason: 'No alimentó la masa madre y se quedó sin fermento.' },
+    { name: 'Mati', month: '2025-12', reason: 'Nadie compraba sus bizcochos y murió por hongos.' },
+    { name: 'Franco', month: '2026-04', reason: 'Se fue a buscar la receta secreta de la margarita perfecta por el mundo, y se lo comió una víbora en Afganistán.' },
+    { name: 'Maxi', month: '2026-05', reason: 'Vio la luz del túnel y la siguió.' },
+    { name: 'Fede', month: '2026-06', reason: 'Lo asesinaron sus compañeros: no se sabía si era salado o dulce, y ante la duda no se desayuna.' },
+    { name: 'Pablo', month: '2026-07', reason: 'De un día para el otro desapareció, nadie sabe su paradero. Dicen que lo vieron vendiendo nuestros bizcochos con un sombrero con orejas redondas.' },
   ],
 };
 
@@ -85,35 +81,68 @@ const normalizeState = (state: AppState): AppState => {
 };
 
 // Bajas históricas de antes de que existiera el Cementerio Harinoso, que
-// nunca quedaron registradas porque dbDeleteUser no guardaba ese rastro.
-const LEGACY_CEMETERY_SEED: CemeteryEntry[] = [
+// nunca quedaron registradas porque dbDeleteUser no guardaba ese rastro —
+// más los motivos ("epitafios") de cada una, usados también para reparar
+// entradas que ya se hayan migrado antes de que existiera el campo `reason`.
+const CEMETERY_REASONS: Record<string, string> = {
+  'Vanessa': 'No alimentó la masa madre y se quedó sin fermento.',
+  'Mati': 'Nadie compraba sus bizcochos y murió por hongos.',
+  'Franco': 'Se fue a buscar la receta secreta de la margarita perfecta por el mundo, y se lo comió una víbora en Afganistán.',
+  'Maxi': 'Vio la luz del túnel y la siguió.',
+  'Fede': 'Lo asesinaron sus compañeros: no se sabía si era salado o dulce, y ante la duda no se desayuna.',
+  'Pablo': 'De un día para el otro desapareció, nadie sabe su paradero. Dicen que lo vieron vendiendo nuestros bizcochos con un sombrero con orejas redondas.',
+};
+
+const LEGACY_CEMETERY_SEED: { name: string; month: string }[] = [
   { name: 'Vanessa', month: '2025-06' },
   { name: 'Mati', month: '2025-12' },
   { name: 'Franco', month: '2026-04' },
   { name: 'Maxi', month: '2026-05' },
 ];
 
-// Migración única para el estado ya guardado en la nube (o en localStorage)
-// desde antes de esta funcionalidad: siembra las bajas históricas y da de
-// baja a Fede (confirmado, junio 2026). Se detecta si ya corrió buscando la
-// primera baja sembrada — así es idempotente y no vuelve a aplicarse.
+// Saca a un usuario todavía activo y lo manda al cementerio, si no está ya.
+const retireIntoCemetery = (state: AppState, userId: string, month: string): boolean => {
+  const user = state.users.find(u => u.id === userId);
+  if (!user) return false;
+  if (!state.cemetery.some(entry => entry.name === user.name)) {
+    state.cemetery.push({ name: user.name, month, reason: CEMETERY_REASONS[user.name] ?? '' });
+  }
+  state.users = state.users.filter(u => u.id !== userId);
+  state.buyerQueue = state.buyerQueue.filter(id => id !== userId);
+  return true;
+};
+
+// Migración para el estado ya guardado en la nube (o en localStorage) desde
+// antes de esta funcionalidad, o de antes de que existiera el campo `reason`:
+// siembra las bajas históricas, da de baja a Fede y Pablo (confirmado), y
+// repara el motivo de cualquier entrada que ya exista sin él. Cada paso
+// revisa por su cuenta si hace falta — así es idempotente sin depender de
+// una única marca de "ya corrió".
 //
 // IMPORTANTE: igual que checkAndRotateWednesday, esto NUNCA debe llamarse
 // sobre una copia local no verificada como fresca — devuelve `true` cuando
 // modificó algo, y quien llama decide si corresponde persistir (ver App.tsx).
 export const applyCemeteryMigration = (state: AppState): boolean => {
-  if (state.cemetery.some(entry => entry.name === 'Vanessa')) return false;
+  let changed = false;
 
-  state.cemetery.push(...LEGACY_CEMETERY_SEED);
-
-  const fede = state.users.find(u => u.id === 'fede');
-  if (fede) {
-    state.cemetery.push({ name: fede.name, month: '2026-06' });
-    state.users = state.users.filter(u => u.id !== 'fede');
-    state.buyerQueue = state.buyerQueue.filter(id => id !== 'fede');
+  for (const seed of LEGACY_CEMETERY_SEED) {
+    if (!state.cemetery.some(entry => entry.name === seed.name)) {
+      state.cemetery.push({ ...seed, reason: CEMETERY_REASONS[seed.name] });
+      changed = true;
+    }
   }
 
-  return true;
+  if (retireIntoCemetery(state, 'fede', '2026-06')) changed = true;
+  if (retireIntoCemetery(state, 'pablo', '2026-07')) changed = true;
+
+  for (const entry of state.cemetery) {
+    if (!entry.reason && CEMETERY_REASONS[entry.name]) {
+      entry.reason = CEMETERY_REASONS[entry.name];
+      changed = true;
+    }
+  }
+
+  return changed;
 };
 
 export const loadFromCloud = async (): Promise<AppState | null> => {
@@ -327,11 +356,11 @@ export const dbReorderQueue = async (newQueue: string[]): Promise<AppState> => {
   return state;
 };
 
-export const dbDeleteUser = async (userId: string): Promise<AppState> => {
+export const dbDeleteUser = async (userId: string, reason: string): Promise<AppState> => {
   const { state, fresh } = await getFreshState();
   const user = state.users.find(u => u.id === userId);
   if (user) {
-    state.cemetery.push({ name: user.name, month: new Date().toISOString().slice(0, 7) });
+    state.cemetery.push({ name: user.name, month: new Date().toISOString().slice(0, 7), reason });
   }
   state.users = state.users.filter(u => u.id !== userId);
   state.buyerQueue = state.buyerQueue.filter(id => id !== userId);

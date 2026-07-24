@@ -23,7 +23,8 @@ import { RulesModal } from './components/RulesModal';
 import { History } from './components/History';
 import { Cemetery } from './components/Cemetery';
 import { SyncErrorToasts } from './components/SyncErrorToasts';
-import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, History as HistoryIcon, Cross } from 'lucide-react';
+import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, History as HistoryIcon } from 'lucide-react';
+import { TombstoneIcon } from './components/TombstoneIcon';
 
 type Theme = 'light' | 'dark';
 const CURRENT_USER_KEY = 'bizcochuelos_current_user';
@@ -142,9 +143,9 @@ function App() {
     setState(await dbReorderQueue(newQueue));
   };
 
-  const handleDeleteUser = async (userId: string) => {
+  const handleDeleteUser = async (userId: string, reason: string) => {
     markLocalWrite();
-    setState(await dbDeleteUser(userId));
+    setState(await dbDeleteUser(userId, reason));
     if (currentUser === userId) handleLogout();
   };
 
@@ -411,7 +412,7 @@ function App() {
             {activeTab === 'cemetery' && (
               <div className="absolute -inset-1 bg-apple-green/10 rounded-xl" />
             )}
-            <Cross className={`w-5 h-5 relative z-10 transition-transform duration-250 ${activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white scale-110' : ''}`} strokeWidth={activeTab === 'cemetery' ? 2.5 : 1.8} />
+            <TombstoneIcon className={`w-4.5 h-5 relative z-10 transition-transform duration-250 ${activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white scale-110' : ''}`} />
             <span className={`text-[10px] font-bold relative z-10 ${activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
               Cementerio
             </span>
