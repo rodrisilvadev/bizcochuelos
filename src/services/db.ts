@@ -94,6 +94,21 @@ export const loadFromCloud = async (): Promise<AppState | null> => {
   }
 };
 
+// Aviso simple (sin librería de estado) para que la UI muestre un toast si el
+// guardado a la nube falla — antes fallaba en silencio y el usuario creía que
+// había guardado cuando en realidad no.
+type SyncErrorListener = (message: string) => void;
+const syncErrorListeners = new Set<SyncErrorListener>();
+
+export const onSyncError = (listener: SyncErrorListener): (() => void) => {
+  syncErrorListeners.add(listener);
+  return () => syncErrorListeners.delete(listener);
+};
+
+const notifySyncError = (message: string): void => {
+  syncErrorListeners.forEach(listener => listener(message));
+};
+
 const syncToCloud = (state: AppState): void => {
   fetch(API_URL, {
     method: 'POST',
@@ -101,9 +116,15 @@ const syncToCloud = (state: AppState): void => {
     body: JSON.stringify(state),
   })
     .then(res => {
-      if (!res.ok) console.error('Bizcochuelos: no se pudo guardar en la nube (status ' + res.status + ')');
+      if (!res.ok) {
+        console.error('Bizcochuelos: no se pudo guardar en la nube (status ' + res.status + ')');
+        notifySyncError('No se pudo guardar en la nube. Puede que tu cambio no se vea reflejado.');
+      }
     })
-    .catch(err => console.error('Bizcochuelos: no se pudo guardar en la nube', err));
+    .catch(err => {
+      console.error('Bizcochuelos: no se pudo guardar en la nube', err);
+      notifySyncError('Sin conexión: no se pudo guardar. Revisá tu internet.');
+    });
 };
 
 // ── Local storage ──────────────────────────────────────────────────────────

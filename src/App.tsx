@@ -20,6 +20,7 @@ import { LoginModal } from './components/LoginModal';
 import { WelcomeModal } from './components/WelcomeModal';
 import { RulesModal } from './components/RulesModal';
 import { History } from './components/History';
+import { SyncErrorToasts } from './components/SyncErrorToasts';
 import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, History as HistoryIcon } from 'lucide-react';
 
 type Theme = 'light' | 'dark';
@@ -153,6 +154,8 @@ function App() {
 
   return (
     <div className="min-h-screen bg-carbon-light dark:bg-[#0b0b0c] flex flex-col font-sans selection:bg-apple-green/20 selection:text-carbon-dark">
+
+      <SyncErrorToasts />
 
       {/* LOGIN MODAL */}
       {currentUser === null && (
