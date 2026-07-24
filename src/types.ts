@@ -49,6 +49,13 @@ export interface HistoryEntry {
   total: number;
 }
 
+// Registro del Cementerio Harinoso: integrantes dados de baja, con el mes en
+// que se fueron del grupo.
+export interface CemeteryEntry {
+  name: string;
+  month: string; // Mes de la baja (YYYY-MM)
+}
+
 export interface AppState {
   users: User[];
   buyerQueue: string[]; // Array of User IDs. First ID is the current buyer.
@@ -56,4 +63,5 @@ export interface AppState {
   lastReviewer: string; // Who was the last reviewer registered
   lastReviewTimestamp: string | null;
   history: HistoryEntry[]; // Pedidos de miércoles pasados, más reciente al final
+  cemetery: CemeteryEntry[]; // Bajas del grupo, más reciente al final
 }

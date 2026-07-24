@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   getAppState,
   checkAndRotateWednesday,
+  applyCemeteryMigration,
   dbRecordUserVisit,
   dbAddUser,
   dbUpdateUserSelections,
@@ -20,8 +21,9 @@ import { LoginModal } from './components/LoginModal';
 import { WelcomeModal } from './components/WelcomeModal';
 import { RulesModal } from './components/RulesModal';
 import { History } from './components/History';
+import { Cemetery } from './components/Cemetery';
 import { SyncErrorToasts } from './components/SyncErrorToasts';
-import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, History as HistoryIcon } from 'lucide-react';
+import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, History as HistoryIcon, Cross } from 'lucide-react';
 
 type Theme = 'light' | 'dark';
 const CURRENT_USER_KEY = 'bizcochuelos_current_user';
@@ -29,7 +31,7 @@ const CURRENT_USER_KEY = 'bizcochuelos_current_user';
 function App() {
   const [state, setState] = useState<AppState>(() => getAppState());
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem(CURRENT_USER_KEY));
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'cemetery'>('dashboard');
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
@@ -58,13 +60,17 @@ function App() {
 
     loadFromCloud().then(cloudState => {
       if (cloudState) {
+        // La migración del Cementerio también corre solo sobre una copia
+        // recién traída de la nube (fresca) — antes de rotar, para que la
+        // rotación ya opere sobre el padrón correcto (sin Fede).
+        const migrated = applyCemeteryMigration(cloudState);
         const rotated = checkAndRotateWednesday({ ...cloudState });
         setState(rotated);
-        // Solo persistimos si la rotación cambió algo de verdad, y solo
-        // porque partimos de una copia recién traída de la nube (fresca) —
-        // nunca de la copia local del propio dispositivo, que podría estar
-        // muy vieja y pisar cambios de otros que este dispositivo no vio.
-        if (rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday) {
+        // Solo persistimos si algo cambió de verdad, y solo porque partimos
+        // de una copia recién traída de la nube (fresca) — nunca de la copia
+        // local del propio dispositivo, que podría estar muy vieja y pisar
+        // cambios de otros que este dispositivo no vio.
+        if (migrated || rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday) {
           saveAppState(rotated);
         }
       }
@@ -86,15 +92,16 @@ function App() {
       if (Date.now() - lastLocalWriteRef.current < 6000) return;
       const cloudState = await loadFromCloud();
       if (cloudState) {
+        const migrated = applyCemeteryMigration(cloudState);
         const rotated = checkAndRotateWednesday({ ...cloudState });
         setState(rotated);
         // Persistir en localStorage lo que trajimos de la nube: si no se
         // hace esto, una mutación local posterior parte de una copia vieja
         // y pisa cambios de otros usuarios que ya estaban en pantalla.
         cacheStateLocally(rotated);
-        // La rotación es fresca (viene de la nube recién traída) — si cambió
-        // algo, es seguro subirla.
-        if (rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday) {
+        // Es fresco (viene de la nube recién traída) — si cambió algo, es
+        // seguro subirlo.
+        if (migrated || rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday) {
           saveAppState(rotated);
         }
       }
@@ -323,6 +330,7 @@ function App() {
           />
         )}
         {activeTab === 'history' && <History history={state.history} />}
+        {activeTab === 'cemetery' && <Cemetery cemetery={state.cemetery} />}
       </main>
 
       {/* FAB — sticky "Lista Panadería" (mismo estilo glass-hero que la card del turno) */}
@@ -391,6 +399,23 @@ function App() {
               Historial
             </span>
             {activeTab === 'history' && <div className="nav-active-indicator" />}
+          </button>
+
+          <button
+            id="tab-btn-cemetery"
+            onClick={() => setActiveTab('cemetery')}
+            className={`relative flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
+              activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'
+            }`}
+          >
+            {activeTab === 'cemetery' && (
+              <div className="absolute -inset-1 bg-apple-green/10 rounded-xl" />
+            )}
+            <Cross className={`w-5 h-5 relative z-10 transition-transform duration-250 ${activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white scale-110' : ''}`} strokeWidth={activeTab === 'cemetery' ? 2.5 : 1.8} />
+            <span className={`text-[10px] font-bold relative z-10 ${activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
+              Cementerio
+            </span>
+            {activeTab === 'cemetery' && <div className="nav-active-indicator" />}
           </button>
         </div>
         <div className="h-safe-area-inset-bottom bg-transparent" style={{ height: 'env(safe-area-inset-bottom, 0px)' }} />

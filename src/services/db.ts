@@ -1,4 +1,4 @@
-import type { AppState, User, BizcochoSelections, HistoryEntry } from '../types';
+import type { AppState, User, BizcochoSelections, HistoryEntry, CemeteryEntry } from '../types';
 import { BIZCOCHO_TYPES } from '../types';
 
 const LOCAL_STORAGE_KEY = 'bizcochuelos_app_state_v4';
@@ -45,11 +45,6 @@ const INITIAL_STATE: AppState = {
       ingresosCount: 0, comprasCount: 0
     },
     {
-      id: 'fede', name: 'Fede',
-      selections: { 'Margarita': 2, 'Jamón y queso (jyq)': 2, 'Vigilante': 0, 'Queso': 0, 'Membrillo': 0, 'Dulce de Leche (ddl)': 0, 'Pan con grasa': 0, 'Panceta': 0, 'Choco': 0, 'Jamón': 0, 'Salado común': 0, 'Chicharrones': 0 },
-      ingresosCount: 0, comprasCount: 1
-    },
-    {
       id: 'mauri', name: 'Mauri',
       selections: { 'Queso': 1, 'Panceta': 1, 'Dulce de Leche (ddl)': 1, 'Margarita': 1, 'Vigilante': 0, 'Membrillo': 0, 'Pan con grasa': 0, 'Choco': 0, 'Jamón': 0, 'Jamón y queso (jyq)': 0, 'Salado común': 0, 'Chicharrones': 0 },
       ingresosCount: 0, comprasCount: 0
@@ -65,11 +60,18 @@ const INITIAL_STATE: AppState = {
       ingresosCount: 0, comprasCount: 0
     }
   ],
-  buyerQueue: ['ignacio', 'rodri', 'pablo', 'bernardo', 'mauri', 'fede', 'javier', 'fabri'],
+  buyerQueue: ['ignacio', 'rodri', 'pablo', 'bernardo', 'mauri', 'javier', 'fabri'],
   lastProcessedWednesday: '2026-06-24',
   lastReviewer: '',
   lastReviewTimestamp: null,
-  history: []
+  history: [],
+  cemetery: [
+    { name: 'Vanessa', month: '2025-06' },
+    { name: 'Mati', month: '2025-12' },
+    { name: 'Franco', month: '2026-04' },
+    { name: 'Maxi', month: '2026-05' },
+    { name: 'Fede', month: '2026-06' },
+  ],
 };
 
 // ── Sincronización con el backend compartido ───────────────────────────────
@@ -78,7 +80,40 @@ const INITIAL_STATE: AppState = {
 // guardados antes de esa fecha (localStorage o Gist viejo) no rompan la app.
 const normalizeState = (state: AppState): AppState => {
   if (!Array.isArray(state.history)) state.history = [];
+  if (!Array.isArray(state.cemetery)) state.cemetery = [];
   return state;
+};
+
+// Bajas históricas de antes de que existiera el Cementerio Harinoso, que
+// nunca quedaron registradas porque dbDeleteUser no guardaba ese rastro.
+const LEGACY_CEMETERY_SEED: CemeteryEntry[] = [
+  { name: 'Vanessa', month: '2025-06' },
+  { name: 'Mati', month: '2025-12' },
+  { name: 'Franco', month: '2026-04' },
+  { name: 'Maxi', month: '2026-05' },
+];
+
+// Migración única para el estado ya guardado en la nube (o en localStorage)
+// desde antes de esta funcionalidad: siembra las bajas históricas y da de
+// baja a Fede (confirmado, junio 2026). Se detecta si ya corrió buscando la
+// primera baja sembrada — así es idempotente y no vuelve a aplicarse.
+//
+// IMPORTANTE: igual que checkAndRotateWednesday, esto NUNCA debe llamarse
+// sobre una copia local no verificada como fresca — devuelve `true` cuando
+// modificó algo, y quien llama decide si corresponde persistir (ver App.tsx).
+export const applyCemeteryMigration = (state: AppState): boolean => {
+  if (state.cemetery.some(entry => entry.name === 'Vanessa')) return false;
+
+  state.cemetery.push(...LEGACY_CEMETERY_SEED);
+
+  const fede = state.users.find(u => u.id === 'fede');
+  if (fede) {
+    state.cemetery.push({ name: fede.name, month: '2026-06' });
+    state.users = state.users.filter(u => u.id !== 'fede');
+    state.buyerQueue = state.buyerQueue.filter(id => id !== 'fede');
+  }
+
+  return true;
 };
 
 export const loadFromCloud = async (): Promise<AppState | null> => {
@@ -294,6 +329,10 @@ export const dbReorderQueue = async (newQueue: string[]): Promise<AppState> => {
 
 export const dbDeleteUser = async (userId: string): Promise<AppState> => {
   const { state, fresh } = await getFreshState();
+  const user = state.users.find(u => u.id === userId);
+  if (user) {
+    state.cemetery.push({ name: user.name, month: new Date().toISOString().slice(0, 7) });
+  }
   state.users = state.users.filter(u => u.id !== userId);
   state.buyerQueue = state.buyerQueue.filter(id => id !== userId);
   persistMutation(state, fresh);
