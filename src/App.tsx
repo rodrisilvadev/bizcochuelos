@@ -9,7 +9,6 @@ import {
   dbCompleteOnboarding,
   dbReorderQueue,
   loadFromCloud,
-  saveAppState,
   cacheStateLocally,
 } from './services/db';
 import type { AppState, BizcochoSelections, BizcochoType } from './types';
@@ -56,9 +55,11 @@ function App() {
 
     loadFromCloud().then(cloudState => {
       if (cloudState) {
-        const rotated = checkAndRotateWednesday({ ...cloudState });
-        setState(rotated);
-        saveAppState(rotated);
+        // checkAndRotateWednesday ya guarda internamente si la rotación
+        // cambió algo — no hace falta volver a guardar acá. Guardar de nuevo
+        // en cada apertura de la app era un POST innecesario en el momento
+        // más propenso a un hiccup de red (justo al cargar la página).
+        setState(checkAndRotateWednesday({ ...cloudState }));
       }
     });
   }, []);
