@@ -9,6 +9,7 @@ import {
   dbCompleteOnboarding,
   dbReorderQueue,
   loadFromCloud,
+  saveAppState,
   cacheStateLocally,
 } from './services/db';
 import type { AppState, BizcochoSelections, BizcochoType } from './types';
@@ -49,17 +50,23 @@ function App() {
   const lastLocalWriteRef = useRef(0);
   const markLocalWrite = () => { lastLocalWriteRef.current = Date.now(); };
 
-  // Al montar: rotar miércoles y traer el último estado compartido.
+  // Al montar: pintamos algo instantáneo con lo que haya en este dispositivo
+  // (checkAndRotateWednesday es puro, no guarda nada — es solo para no
+  // mostrar una cola desactualizada mientras esperamos a la nube).
   useEffect(() => {
     setState(prev => checkAndRotateWednesday({ ...prev }));
 
     loadFromCloud().then(cloudState => {
       if (cloudState) {
-        // checkAndRotateWednesday ya guarda internamente si la rotación
-        // cambió algo — no hace falta volver a guardar acá. Guardar de nuevo
-        // en cada apertura de la app era un POST innecesario en el momento
-        // más propenso a un hiccup de red (justo al cargar la página).
-        setState(checkAndRotateWednesday({ ...cloudState }));
+        const rotated = checkAndRotateWednesday({ ...cloudState });
+        setState(rotated);
+        // Solo persistimos si la rotación cambió algo de verdad, y solo
+        // porque partimos de una copia recién traída de la nube (fresca) —
+        // nunca de la copia local del propio dispositivo, que podría estar
+        // muy vieja y pisar cambios de otros que este dispositivo no vio.
+        if (rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday) {
+          saveAppState(rotated);
+        }
       }
     });
   }, []);
@@ -85,6 +92,11 @@ function App() {
         // hace esto, una mutación local posterior parte de una copia vieja
         // y pisa cambios de otros usuarios que ya estaban en pantalla.
         cacheStateLocally(rotated);
+        // La rotación es fresca (viene de la nube recién traída) — si cambió
+        // algo, es seguro subirla.
+        if (rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday) {
+          saveAppState(rotated);
+        }
       }
     }, 15000);
     return () => clearInterval(id);

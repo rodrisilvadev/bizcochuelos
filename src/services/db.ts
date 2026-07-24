@@ -162,18 +162,40 @@ export const saveAppState = (state: AppState): void => {
 
 // Antes de cualquier mutación, traemos el estado más fresco posible: la nube
 // es la fuente de verdad compartida entre todos los usuarios. Si la nube no
-// responde (offline, error de red), recién ahí caemos a la copia local.
-const getFreshState = async (): Promise<AppState> => {
+// responde (offline, error de red), recién ahí caemos a la copia local — pero
+// marcada como "no fresca", para que quien mute ese estado sepa que NO debe
+// subirla a la nube tal cual (ver persistMutation).
+const getFreshState = async (): Promise<{ state: AppState; fresh: boolean }> => {
   const cloudState = await loadFromCloud();
   if (cloudState) {
     cacheStateLocally(cloudState);
-    return cloudState;
+    return { state: cloudState, fresh: true };
   }
-  return getAppState();
+  return { state: getAppState(), fresh: false };
+};
+
+// Guarda el resultado de una mutación. Si el estado de partida no era fresco
+// (la nube no respondió y se cayó a la copia local), NO lo subimos: pisaría
+// en la nube los cambios de otros usuarios que este dispositivo nunca llegó
+// a ver. En ese caso el cambio queda solo en este dispositivo y se avisa.
+const persistMutation = (state: AppState, fresh: boolean): void => {
+  if (fresh) {
+    saveAppState(state);
+  } else {
+    cacheStateLocally(state);
+    notifySyncError('No se pudo conectar a la nube: tu cambio quedó guardado solo en este dispositivo.');
+  }
 };
 
 // ── Domain logic ───────────────────────────────────────────────────────────
 
+// Función pura: rota la cola si corresponde y devuelve el estado modificado,
+// pero NUNCA guarda por su cuenta. Guardar acá sería peligroso: si a esta
+// función se le pasa una copia local vieja (de un dispositivo que no abría la
+// app hace tiempo), guardar de inmediato pisaría en la nube los cambios más
+// recientes de otros usuarios que ese dispositivo nunca llegó a ver. Quien
+// llama decide si corresponde persistir, y solo debería hacerlo cuando el
+// estado de partida vino fresco de la nube.
 export const checkAndRotateWednesday = (state: AppState): AppState => {
   const todayStr = new Date().toISOString().split('T')[0];
   let currentWednesday = state.lastProcessedWednesday;
@@ -220,7 +242,6 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
 
   if (stateChanged) {
     state.lastProcessedWednesday = currentWednesday;
-    saveAppState(state);
   }
 
   return state;
@@ -230,7 +251,7 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
 // le toca el siguiente) y queda "needsOnboarding" hasta que ella misma elija
 // sus 4 bizcochos al ingresar por primera vez.
 export const dbAddUser = async (name: string): Promise<AppState> => {
-  const state = await getFreshState();
+  const { state, fresh } = await getFreshState();
   const newId = `user-${Date.now()}`;
   const newUser: User = {
     id: newId, name: name.trim(), selections: createEmptySelections(),
@@ -239,24 +260,24 @@ export const dbAddUser = async (name: string): Promise<AppState> => {
   state.users.push(newUser);
   if (state.buyerQueue.length >= 2) state.buyerQueue.splice(1, 0, newId);
   else state.buyerQueue.push(newId);
-  saveAppState(state);
+  persistMutation(state, fresh);
   return state;
 };
 
 export const dbUpdateUserSelections = async (userId: string, selections: BizcochoSelections): Promise<AppState> => {
-  const state = await getFreshState();
+  const { state, fresh } = await getFreshState();
   const user = state.users.find(u => u.id === userId);
-  if (user) { user.selections = selections; saveAppState(state); }
+  if (user) { user.selections = selections; persistMutation(state, fresh); }
   return state;
 };
 
 export const dbCompleteOnboarding = async (userId: string, selections: BizcochoSelections): Promise<AppState> => {
-  const state = await getFreshState();
+  const { state, fresh } = await getFreshState();
   const user = state.users.find(u => u.id === userId);
   if (user) {
     user.selections = selections;
     user.needsOnboarding = false;
-    saveAppState(state);
+    persistMutation(state, fresh);
   }
   return state;
 };
@@ -265,28 +286,28 @@ export const dbCompleteOnboarding = async (userId: string, selections: BizcochoS
 // vacaciones o hacer un swap entre dos integrantes). No toca comprasCount,
 // porque nadie compró todavía.
 export const dbReorderQueue = async (newQueue: string[]): Promise<AppState> => {
-  const state = await getFreshState();
+  const { state, fresh } = await getFreshState();
   state.buyerQueue = newQueue;
-  saveAppState(state);
+  persistMutation(state, fresh);
   return state;
 };
 
 export const dbDeleteUser = async (userId: string): Promise<AppState> => {
-  const state = await getFreshState();
+  const { state, fresh } = await getFreshState();
   state.users = state.users.filter(u => u.id !== userId);
   state.buyerQueue = state.buyerQueue.filter(id => id !== userId);
-  saveAppState(state);
+  persistMutation(state, fresh);
   return state;
 };
 
 export const dbRecordUserVisit = async (userId: string): Promise<AppState> => {
-  const state = await getFreshState();
+  const { state, fresh } = await getFreshState();
   const user = state.users.find(u => u.id === userId);
   if (user) {
     user.ingresosCount = (user.ingresosCount || 0) + 1;
     state.lastReviewer = user.name;
     state.lastReviewTimestamp = new Date().toISOString();
-    saveAppState(state);
+    persistMutation(state, fresh);
   }
   return state;
 };
