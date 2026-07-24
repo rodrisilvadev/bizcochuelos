@@ -1,0 +1,19 @@
+{
+  "name": "Bizcochuelos",
+  "short_name": "Bizcochuelos",
+  "description": "Gestión semanal de la compra rotativa de bizcochos de la oficina.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#8CE600",
+  "lang": "es-AR",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
