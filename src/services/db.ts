@@ -99,7 +99,11 @@ const syncToCloud = (state: AppState): void => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(state),
-  }).catch(() => {});
+  })
+    .then(res => {
+      if (!res.ok) console.error('Bizcochuelos: no se pudo guardar en la nube (status ' + res.status + ')');
+    })
+    .catch(err => console.error('Bizcochuelos: no se pudo guardar en la nube', err));
 };
 
 // ── Local storage ──────────────────────────────────────────────────────────
@@ -117,13 +121,34 @@ export const getAppState = (): AppState => {
   }
 };
 
-export const saveAppState = (state: AppState): void => {
+// Solo cachea localmente, sin volver a subir a la nube. Se usa para reflejar
+// en localStorage lo que ya trajimos del servidor (polling, carga inicial),
+// para que una mutación posterior no parta de una copia local vieja y pise
+// cambios de otros usuarios que ya están en pantalla pero nunca se guardaron
+// en este dispositivo.
+export const cacheStateLocally = (state: AppState): void => {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
-    syncToCloud(state);
   } catch {
     // ignore
   }
+};
+
+export const saveAppState = (state: AppState): void => {
+  cacheStateLocally(state);
+  syncToCloud(state);
+};
+
+// Antes de cualquier mutación, traemos el estado más fresco posible: la nube
+// es la fuente de verdad compartida entre todos los usuarios. Si la nube no
+// responde (offline, error de red), recién ahí caemos a la copia local.
+const getFreshState = async (): Promise<AppState> => {
+  const cloudState = await loadFromCloud();
+  if (cloudState) {
+    cacheStateLocally(cloudState);
+    return cloudState;
+  }
+  return getAppState();
 };
 
 // ── Domain logic ───────────────────────────────────────────────────────────
@@ -183,8 +208,8 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
 // Alta nueva: entra a la cola en 2° lugar (no compra el próximo miércoles,
 // le toca el siguiente) y queda "needsOnboarding" hasta que ella misma elija
 // sus 4 bizcochos al ingresar por primera vez.
-export const dbAddUser = (name: string): AppState => {
-  const state = getAppState();
+export const dbAddUser = async (name: string): Promise<AppState> => {
+  const state = await getFreshState();
   const newId = `user-${Date.now()}`;
   const newUser: User = {
     id: newId, name: name.trim(), selections: createEmptySelections(),
@@ -197,15 +222,15 @@ export const dbAddUser = (name: string): AppState => {
   return state;
 };
 
-export const dbUpdateUserSelections = (userId: string, selections: BizcochoSelections): AppState => {
-  const state = getAppState();
+export const dbUpdateUserSelections = async (userId: string, selections: BizcochoSelections): Promise<AppState> => {
+  const state = await getFreshState();
   const user = state.users.find(u => u.id === userId);
   if (user) { user.selections = selections; saveAppState(state); }
   return state;
 };
 
-export const dbCompleteOnboarding = (userId: string, selections: BizcochoSelections): AppState => {
-  const state = getAppState();
+export const dbCompleteOnboarding = async (userId: string, selections: BizcochoSelections): Promise<AppState> => {
+  const state = await getFreshState();
   const user = state.users.find(u => u.id === userId);
   if (user) {
     user.selections = selections;
@@ -218,23 +243,23 @@ export const dbCompleteOnboarding = (userId: string, selections: BizcochoSelecti
 // Gestión manual de turnos: reordenar la cola (para saltear a alguien de
 // vacaciones o hacer un swap entre dos integrantes). No toca comprasCount,
 // porque nadie compró todavía.
-export const dbReorderQueue = (newQueue: string[]): AppState => {
-  const state = getAppState();
+export const dbReorderQueue = async (newQueue: string[]): Promise<AppState> => {
+  const state = await getFreshState();
   state.buyerQueue = newQueue;
   saveAppState(state);
   return state;
 };
 
-export const dbDeleteUser = (userId: string): AppState => {
-  const state = getAppState();
+export const dbDeleteUser = async (userId: string): Promise<AppState> => {
+  const state = await getFreshState();
   state.users = state.users.filter(u => u.id !== userId);
   state.buyerQueue = state.buyerQueue.filter(id => id !== userId);
   saveAppState(state);
   return state;
 };
 
-export const dbRecordUserVisit = (userId: string): AppState => {
-  const state = getAppState();
+export const dbRecordUserVisit = async (userId: string): Promise<AppState> => {
+  const state = await getFreshState();
   const user = state.users.find(u => u.id === userId);
   if (user) {
     user.ingresosCount = (user.ingresosCount || 0) + 1;

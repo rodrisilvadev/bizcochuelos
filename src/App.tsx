@@ -10,6 +10,7 @@ import {
   dbReorderQueue,
   loadFromCloud,
   saveAppState,
+  cacheStateLocally,
 } from './services/db';
 import type { AppState, BizcochoSelections, BizcochoType } from './types';
 import { BIZCOCHO_TYPES } from './types';
@@ -75,14 +76,21 @@ function App() {
       // No pisar un cambio local reciente (ventana de 6 s para el round-trip).
       if (Date.now() - lastLocalWriteRef.current < 6000) return;
       const cloudState = await loadFromCloud();
-      if (cloudState) setState(checkAndRotateWednesday({ ...cloudState }));
+      if (cloudState) {
+        const rotated = checkAndRotateWednesday({ ...cloudState });
+        setState(rotated);
+        // Persistir en localStorage lo que trajimos de la nube: si no se
+        // hace esto, una mutación local posterior parte de una copia vieja
+        // y pisa cambios de otros usuarios que ya estaban en pantalla.
+        cacheStateLocally(rotated);
+      }
     }, 15000);
     return () => clearInterval(id);
   }, []);
 
-  const handleSelectUser = (userId: string) => {
+  const handleSelectUser = async (userId: string) => {
     markLocalWrite();
-    const newState = dbRecordUserVisit(userId);
+    const newState = await dbRecordUserVisit(userId);
     setState(newState);
     setCurrentUser(userId);
     localStorage.setItem(CURRENT_USER_KEY, userId);
@@ -93,29 +101,29 @@ function App() {
     localStorage.removeItem(CURRENT_USER_KEY);
   };
 
-  const handleAddUser = (name: string) => {
+  const handleAddUser = async (name: string) => {
     markLocalWrite();
-    setState(dbAddUser(name));
+    setState(await dbAddUser(name));
   };
 
-  const handleUpdateUserSelections = (userId: string, selections: BizcochoSelections) => {
+  const handleUpdateUserSelections = async (userId: string, selections: BizcochoSelections) => {
     markLocalWrite();
-    setState(dbUpdateUserSelections(userId, selections));
+    setState(await dbUpdateUserSelections(userId, selections));
   };
 
-  const handleCompleteOnboarding = (userId: string, selections: BizcochoSelections) => {
+  const handleCompleteOnboarding = async (userId: string, selections: BizcochoSelections) => {
     markLocalWrite();
-    setState(dbCompleteOnboarding(userId, selections));
+    setState(await dbCompleteOnboarding(userId, selections));
   };
 
-  const handleReorderQueue = (newQueue: string[]) => {
+  const handleReorderQueue = async (newQueue: string[]) => {
     markLocalWrite();
-    setState(dbReorderQueue(newQueue));
+    setState(await dbReorderQueue(newQueue));
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     markLocalWrite();
-    setState(dbDeleteUser(userId));
+    setState(await dbDeleteUser(userId));
     if (currentUser === userId) handleLogout();
   };
 
