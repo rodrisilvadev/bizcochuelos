@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { BizcochoSelections, BizcochoType, User } from '../types';
+import { SELECTIONS_PER_USER } from '../types';
 import { createEmptySelections } from '../services/db';
 import { PastryPicker } from './PastryPicker';
 import { PartyPopper, Check, AlertCircle } from 'lucide-react';
@@ -18,7 +19,7 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({ user, onComplete }) 
   const [sel, setSel] = useState<BizcochoSelections>(() => createEmptySelections());
 
   const total = Object.values(sel).reduce((s, v) => s + v, 0);
-  const incSel = (t: BizcochoType) => { if (total < 4) setSel(p => ({ ...p, [t]: p[t] + 1 })); };
+  const incSel = (t: BizcochoType) => { if (total < SELECTIONS_PER_USER) setSel(p => ({ ...p, [t]: p[t] + 1 })); };
   const decSel = (t: BizcochoType) => { if (sel[t] > 0) setSel(p => ({ ...p, [t]: p[t] - 1 })); };
 
   const confetti = useMemo(() => Array.from({ length: 32 }, (_, i) => ({
@@ -77,7 +78,7 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({ user, onComplete }) 
           ) : (
             <>
               <h2 className="text-lg font-extrabold text-carbon-dark dark:text-white tracking-tight">
-                Elegí tus 4 bizcochos
+                Elegí tus {SELECTIONS_PER_USER} bizcochos
               </h2>
               <p className="text-[11px] text-gray-400 font-semibold mt-1 mb-4">
                 Esta va a ser tu elección semanal por defecto. Después la podés cambiar desde Integrantes.
@@ -86,27 +87,27 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({ user, onComplete }) 
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-extrabold text-carbon-dark dark:text-white">Tu selección:</span>
                 <span className={`text-xs font-black px-2.5 py-1 rounded-full transition-colors ${
-                  total === 4
+                  total === SELECTIONS_PER_USER
                     ? 'bg-apple-green/10 text-apple-green border border-apple-green/20'
                     : 'bg-gray-100 dark:bg-white/10 text-gray-400'
                 }`}>
-                  {total} / 4
+                  {total} / {SELECTIONS_PER_USER}
                 </span>
               </div>
 
-              <PastryPicker selections={sel} total={total} max={4} onInc={incSel} onDec={decSel} />
+              <PastryPicker selections={sel} total={total} max={SELECTIONS_PER_USER} onInc={incSel} onDec={decSel} />
 
-              {total !== 4 && (
+              {total !== SELECTIONS_PER_USER && (
                 <div className="flex items-center justify-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 font-bold mt-3">
                   <AlertCircle className="w-3.5 h-3.5" />
-                  <span>Elegí {4 - total} más para continuar.</span>
+                  <span>Elegí {SELECTIONS_PER_USER - total} más para continuar.</span>
                 </div>
               )}
 
               <button
                 id="btn-welcome-save"
                 onClick={() => onComplete(sel)}
-                disabled={total !== 4}
+                disabled={total !== SELECTIONS_PER_USER}
                 className="w-full mt-5 py-3.5 bg-apple-green hover:bg-apple-green-hover disabled:opacity-40 disabled:cursor-not-allowed text-carbon-dark font-extrabold rounded-2xl transition-all shadow-sm text-sm cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
               >
                 <Check className="w-4 h-4" /> Listo, empezar

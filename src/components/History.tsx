@@ -1,5 +1,6 @@
 import React from 'react';
 import type { HistoryEntry } from '../types';
+import { EmptyState } from './EmptyState';
 import { History as HistoryIcon, ShoppingBag } from 'lucide-react';
 
 interface HistoryProps {
@@ -25,11 +26,11 @@ export const History: React.FC<HistoryProps> = ({ history }) => {
       </div>
 
       {entries.length === 0 ? (
-        <div className="bg-white dark:bg-carbon-gray rounded-3xl border border-dashed border-gray-200 dark:border-white/10 p-12 text-center">
-          <ShoppingBag className="w-12 h-12 text-gray-200 dark:text-white/15 mx-auto mb-3" />
-          <p className="text-sm font-bold text-gray-400">Todavía no hay historial</p>
-          <p className="text-xs text-gray-300 dark:text-gray-500 mt-0.5">Se va a ir completando cada miércoles que pase el turno.</p>
-        </div>
+        <EmptyState
+          icon={ShoppingBag}
+          title="Todavía no hay historial"
+          subtitle="Se va a ir completando cada miércoles que pase el turno."
+        />
       ) : (
         <div className="space-y-3">
           {entries.map(entry => (

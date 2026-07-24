@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { User } from '../types';
+import { getAvatarColor } from '../utils/avatar';
 import { Coffee, ChevronRight } from 'lucide-react';
 
 interface LoginModalProps {
@@ -14,17 +15,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ users, onSelectUser }) =
     setSelecting(userId);
     setTimeout(() => onSelectUser(userId), 280);
   };
-
-  // Color palette for avatars based on index
-  const avatarColors = [
-    'from-violet-400 to-purple-500',
-    'from-emerald-400 to-teal-500',
-    'from-orange-400 to-red-500',
-    'from-blue-400 to-indigo-500',
-    'from-pink-400 to-rose-500',
-    'from-amber-400 to-orange-500',
-    'from-cyan-400 to-blue-500',
-  ];
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col">
@@ -52,9 +42,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ users, onSelectUser }) =
 
           {/* Member list */}
           <div className="space-y-3">
-            {users.map((user, i) => {
+            {users.map(user => {
               const isSelecting = selecting === user.id;
-              const colorClass = avatarColors[i % avatarColors.length];
+              const colorClass = getAvatarColor(user.id);
               const total = Object.values(user.selections).reduce((s, v) => s + v, 0);
               const missingChoices = total === 0;
 

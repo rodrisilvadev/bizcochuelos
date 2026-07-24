@@ -29,6 +29,9 @@ export const BIZCOCHO_TYPES: BizcochoType[] = [
 
 export type BizcochoSelections = Record<BizcochoType, number>;
 
+// Cantidad de bizcochos que cada integrante elige (onboarding y edición).
+export const SELECTIONS_PER_USER = 4;
+
 export interface User {
   id: string;
   name: string;
