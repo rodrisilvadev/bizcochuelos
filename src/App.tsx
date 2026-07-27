@@ -375,22 +375,26 @@ function App() {
       {/* BOTTOM TAB BAR */}
       {!onboarding && (
       <nav className="fixed bottom-0 left-0 right-0 z-40 glassmorphism border-t border-white/60 shadow-glass">
-        {/* items-end alinea las etiquetas al mismo baseline pese a que el botón
-            central es más alto. Las otras cuatro pestañas miden igual entre sí,
-            así que para ellas no cambia nada. */}
-        <div className="max-w-2xl mx-auto px-4 py-2 flex items-end justify-around">
+        {/* Las cinco celdas son flex-1 basis-0, o sea exactamente 1/5 del ancho
+            cada una. Es lo que hace que el botón de Balance caiga en el centro
+            real de la barra: con `justify-around` se repartían según el ancho
+            natural de cada texto, y como "Compra + Integrantes" no pesa lo
+            mismo que "Historial + Cementerio", el centro se corría.
+            items-end alinea las etiquetas al mismo baseline pese a que el botón
+            central es más alto. */}
+        <div className="max-w-2xl mx-auto px-2 py-2 flex items-end">
           <button
             id="tab-btn-dashboard"
             onClick={() => setActiveTab('dashboard')}
-            className={`relative flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
+            className={`relative flex-1 basis-0 min-w-0 flex flex-col items-center gap-1 px-0.5 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
               activeTab === 'dashboard' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'
             }`}
           >
             {activeTab === 'dashboard' && (
-              <div className="absolute -inset-1 bg-apple-green/10 rounded-xl" />
+              <div className="absolute inset-x-1 -inset-y-1 bg-apple-green/10 rounded-xl" />
             )}
             <LayoutDashboard className={`w-5 h-5 relative z-10 transition-transform duration-250 ${activeTab === 'dashboard' ? 'text-carbon-dark dark:text-white scale-110' : ''}`} strokeWidth={activeTab === 'dashboard' ? 2.5 : 1.8} />
-            <span className={`text-[10px] font-bold relative z-10 ${activeTab === 'dashboard' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
+            <span className={`text-[10px] font-bold tracking-tight relative z-10 w-full text-center truncate ${activeTab === 'dashboard' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
               Compra
             </span>
             {activeTab === 'dashboard' && <div className="nav-active-indicator" />}
@@ -399,15 +403,15 @@ function App() {
           <button
             id="tab-btn-members"
             onClick={() => setActiveTab('members')}
-            className={`relative flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
+            className={`relative flex-1 basis-0 min-w-0 flex flex-col items-center gap-1 px-0.5 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
               activeTab === 'members' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'
             }`}
           >
             {activeTab === 'members' && (
-              <div className="absolute -inset-1 bg-apple-green/10 rounded-xl" />
+              <div className="absolute inset-x-1 -inset-y-1 bg-apple-green/10 rounded-xl" />
             )}
             <Users className={`w-5 h-5 relative z-10 transition-transform duration-250 ${activeTab === 'members' ? 'text-carbon-dark dark:text-white scale-110' : ''}`} strokeWidth={activeTab === 'members' ? 2.5 : 1.8} />
-            <span className={`text-[10px] font-bold relative z-10 ${activeTab === 'members' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
+            <span className={`text-[10px] font-bold tracking-tight relative z-10 w-full text-center truncate ${activeTab === 'members' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
               Integrantes
             </span>
             {activeTab === 'members' && <div className="nav-active-indicator" />}
@@ -421,12 +425,12 @@ function App() {
             onClick={() => setShowBalanceModal(true)}
             title="Balance de Levadura — la verdad dura"
             aria-label="Ver el Balance de Levadura"
-            className="relative flex flex-col items-center gap-1 px-4 py-1.5 cursor-pointer group"
+            className="relative flex-1 basis-0 min-w-0 flex flex-col items-center gap-1 px-0.5 py-1.5 cursor-pointer group"
           >
-            <div className="w-12 h-12 -mt-7 rounded-2xl bg-apple-green flex items-center justify-center shadow-lifted group-hover:bg-apple-green-hover group-active:scale-95 transition-all duration-200">
+            <div className="w-12 h-12 -mt-7 rounded-2xl bg-apple-green flex items-center justify-center shadow-lifted group-hover:bg-apple-green-hover group-active:scale-95 transition-all duration-200 flex-shrink-0">
               <Scale className="w-5 h-5 text-carbon-dark" strokeWidth={2.5} />
             </div>
-            <span className="text-[10px] font-bold text-gray-400 group-hover:text-carbon-dark dark:group-hover:text-white transition-colors">
+            <span className="text-[10px] font-bold tracking-tight text-gray-400 group-hover:text-carbon-dark dark:group-hover:text-white transition-colors w-full text-center truncate">
               Balance
             </span>
           </button>
@@ -434,15 +438,15 @@ function App() {
           <button
             id="tab-btn-history"
             onClick={() => setActiveTab('history')}
-            className={`relative flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
+            className={`relative flex-1 basis-0 min-w-0 flex flex-col items-center gap-1 px-0.5 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
               activeTab === 'history' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'
             }`}
           >
             {activeTab === 'history' && (
-              <div className="absolute -inset-1 bg-apple-green/10 rounded-xl" />
+              <div className="absolute inset-x-1 -inset-y-1 bg-apple-green/10 rounded-xl" />
             )}
             <HistoryIcon className={`w-5 h-5 relative z-10 transition-transform duration-250 ${activeTab === 'history' ? 'text-carbon-dark dark:text-white scale-110' : ''}`} strokeWidth={activeTab === 'history' ? 2.5 : 1.8} />
-            <span className={`text-[10px] font-bold relative z-10 ${activeTab === 'history' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
+            <span className={`text-[10px] font-bold tracking-tight relative z-10 w-full text-center truncate ${activeTab === 'history' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
               Historial
             </span>
             {activeTab === 'history' && <div className="nav-active-indicator" />}
@@ -451,15 +455,15 @@ function App() {
           <button
             id="tab-btn-cemetery"
             onClick={() => setActiveTab('cemetery')}
-            className={`relative flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
+            className={`relative flex-1 basis-0 min-w-0 flex flex-col items-center gap-1 px-0.5 py-1.5 rounded-xl transition-all duration-250 cursor-pointer ${
               activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'
             }`}
           >
             {activeTab === 'cemetery' && (
-              <div className="absolute -inset-1 bg-apple-green/10 rounded-xl" />
+              <div className="absolute inset-x-1 -inset-y-1 bg-apple-green/10 rounded-xl" />
             )}
             <TombstoneIcon className={`w-4.5 h-5 relative z-10 transition-transform duration-250 ${activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white scale-110' : ''}`} />
-            <span className={`text-[10px] font-bold relative z-10 ${activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
+            <span className={`text-[10px] font-bold tracking-tight relative z-10 w-full text-center truncate ${activeTab === 'cemetery' ? 'text-carbon-dark dark:text-white' : 'text-gray-400'}`}>
               Cementerio
             </span>
             {activeTab === 'cemetery' && <div className="nav-active-indicator" />}
