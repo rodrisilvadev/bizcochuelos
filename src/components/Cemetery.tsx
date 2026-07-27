@@ -1,11 +1,34 @@
 import React from 'react';
-import type { CemeteryEntry } from '../types';
+import type { CemeteryEntry, LedgerRow } from '../types';
 import { EmptyState } from './EmptyState';
 import { TombstoneIcon } from './TombstoneIcon';
 
 interface CemeteryProps {
   cemetery: CemeteryEntry[];
+  ledger: LedgerRow[];
 }
+
+// Cómo quedó el Balance de Levadura de alguien que ya no está. Es el único
+// lugar donde el balance es un veredicto y no un turno pendiente: el que se
+// fue en negativo ya no lo va a compensar nunca.
+const epitaphBalance = (balance: number): { text: string; tone: string } => {
+  if (balance < 0) {
+    return {
+      text: `Se fue debiendo ${Math.abs(balance)} bizcochos`,
+      tone: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/25',
+    };
+  }
+  if (balance > 0) {
+    return {
+      text: `Se fue y le quedaron debiendo ${balance}`,
+      tone: 'text-apple-green bg-apple-green/10 border-apple-green/20',
+    };
+  }
+  return {
+    text: 'Se fue a mano, sin deudas',
+    tone: 'text-gray-400 bg-carbon-light dark:bg-white/5 border-gray-100 dark:border-white/10',
+  };
+};
 
 const formatMonthShort = (month: string): string => {
   const d = new Date(month + '-01T12:00:00');
@@ -15,8 +38,14 @@ const formatMonthShort = (month: string): string => {
 
 // El Cementerio Harinoso: integrantes que se fueron del grupo, con el mes en
 // que se despidieron y su epitafio. Solo informativo — nadie vuelve de acá.
-export const Cemetery: React.FC<CemeteryProps> = ({ cemetery }) => {
+export const Cemetery: React.FC<CemeteryProps> = ({ cemetery, ledger }) => {
   const entries = [...cemetery].reverse();
+
+  // Las bajas se guardan por nombre y el ledger por id, así que el cruce es
+  // por nombre. Solo se muestra si esa persona llegó a vivir algún miércoles
+  // registrado — los que se fueron antes del 2026-07-01 no tienen libro.
+  const balanceOf = (name: string): LedgerRow | undefined =>
+    ledger.find(r => !r.activo && r.name === name && r.semanas > 0);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -52,6 +81,19 @@ export const Cemetery: React.FC<CemeteryProps> = ({ cemetery }) => {
                     {entry.reason}
                   </p>
                 )}
+                {(() => {
+                  const row = balanceOf(entry.name);
+                  if (!row) return null;
+                  const { text, tone } = epitaphBalance(row.balance);
+                  return (
+                    <span
+                      title={`Comió ${row.comio}, puso ${row.puso}`}
+                      className={`inline-block mt-2 text-[10px] font-extrabold px-2 py-1 rounded-lg border ${tone}`}
+                    >
+                      {text}
+                    </span>
+                  );
+                })()}
               </div>
             </div>
           ))}

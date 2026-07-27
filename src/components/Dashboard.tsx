@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import type { AppState, BizcochoType } from '../types';
+import type { AppState, BizcochoType, LedgerRow } from '../types';
 import { BIZCOCHO_TYPES } from '../types';
+import { BalanceLevadura } from './BalanceLevadura';
 import {
   ShoppingBag,
   ArrowRight,
@@ -17,11 +18,12 @@ import {
 
 interface DashboardProps {
   state: AppState;
+  ledger: LedgerRow[];
   currentUser: string | null;
   onReorderQueue: (newQueue: string[]) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReorderQueue }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ state, ledger, currentUser, onReorderQueue }) => {
   const { users, buyerQueue, lastReviewer, lastReviewTimestamp } = state;
 
   const [showSchedule, setShowSchedule] = useState(false);
@@ -266,6 +268,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReor
           </div>
         )}
       </div>
+
+      {/* ── BALANCE DE LEVADURA: cuánto puso cada uno vs cuánto comió ── */}
+      <BalanceLevadura ledger={ledger} currentUser={currentUser} />
 
       {/* ── Last Visit Footer ── */}
       {lastReviewer && (

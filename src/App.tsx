@@ -3,6 +3,7 @@ import {
   getAppState,
   checkAndRotateWednesday,
   applyCemeteryMigration,
+  applyLedgerMigration,
   dbRecordUserVisit,
   dbAddUser,
   dbUpdateUserSelections,
@@ -13,6 +14,7 @@ import {
   saveAppState,
   cacheStateLocally,
 } from './services/db';
+import { computeLedger } from './services/ledger';
 import type { AppState, BizcochoSelections, BizcochoType } from './types';
 import { BIZCOCHO_TYPES } from './types';
 import { Dashboard } from './components/Dashboard';
@@ -61,10 +63,14 @@ function App() {
 
     loadFromCloud().then(cloudState => {
       if (cloudState) {
-        // La migración del Cementerio también corre solo sobre una copia
-        // recién traída de la nube (fresca) — antes de rotar, para que la
-        // rotación ya opere sobre el padrón correcto (sin Fede).
-        const migrated = applyCemeteryMigration(cloudState);
+        // Las migraciones también corren solo sobre una copia recién traída de
+        // la nube (fresca) — antes de rotar, para que la rotación ya opere
+        // sobre el padrón correcto (sin Fede).
+        // Ojo: sin cortocircuito — las dos migraciones tienen que correr
+        // siempre, no solo hasta que una devuelva true.
+        const cemeteryMigrated = applyCemeteryMigration(cloudState);
+        const ledgerMigrated = applyLedgerMigration(cloudState);
+        const migrated = cemeteryMigrated || ledgerMigrated;
         const rotated = checkAndRotateWednesday({ ...cloudState });
         setState(rotated);
         // Solo persistimos si algo cambió de verdad, y solo porque partimos
@@ -93,7 +99,9 @@ function App() {
       if (Date.now() - lastLocalWriteRef.current < 6000) return;
       const cloudState = await loadFromCloud();
       if (cloudState) {
-        const migrated = applyCemeteryMigration(cloudState);
+        const cemeteryMigrated = applyCemeteryMigration(cloudState);
+        const ledgerMigrated = applyLedgerMigration(cloudState);
+        const migrated = cemeteryMigrated || ledgerMigrated;
         const rotated = checkAndRotateWednesday({ ...cloudState });
         setState(rotated);
         // Persistir en localStorage lo que trajimos de la nube: si no se
@@ -172,6 +180,11 @@ function App() {
 
   const currentBuyer = state.users.find(u => u.id === state.buyerQueue[0]);
   const onboarding = !!(activeUserObj && activeUserObj.needsOnboarding);
+
+  // Balance de Levadura. Se calcula una sola vez acá (es un valor derivado del
+  // historial) y se reparte, para que las tres pantallas que lo muestran no
+  // puedan llegar a discrepar entre sí.
+  const ledger = computeLedger(state);
 
   return (
     <div className="min-h-screen bg-carbon-light dark:bg-[#0b0b0c] flex flex-col font-sans selection:bg-apple-green/20 selection:text-carbon-dark">
@@ -321,17 +334,18 @@ function App() {
 
       {/* MAIN */}
       <main className="flex-1 max-w-2xl w-full mx-auto px-4 pt-5 pb-28">
-        {activeTab === 'dashboard' && <Dashboard state={state} currentUser={currentUser} onReorderQueue={handleReorderQueue} />}
+        {activeTab === 'dashboard' && <Dashboard state={state} ledger={ledger} currentUser={currentUser} onReorderQueue={handleReorderQueue} />}
         {activeTab === 'members' && (
           <Members
             users={state.users}
+            ledger={ledger}
             onAddUser={handleAddUser}
             onUpdateUserSelections={handleUpdateUserSelections}
             onDeleteUser={handleDeleteUser}
           />
         )}
         {activeTab === 'history' && <History history={state.history} />}
-        {activeTab === 'cemetery' && <Cemetery cemetery={state.cemetery} />}
+        {activeTab === 'cemetery' && <Cemetery cemetery={state.cemetery} ledger={ledger} />}
       </main>
 
       {/* FAB — sticky "Lista Panadería" (mismo estilo glass-hero que la card del turno) */}

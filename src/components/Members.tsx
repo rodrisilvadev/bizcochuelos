@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { User, BizcochoSelections, BizcochoType } from '../types';
+import type { User, BizcochoSelections, BizcochoType, LedgerRow } from '../types';
 import { BIZCOCHO_TYPES, SELECTIONS_PER_USER } from '../types';
 import { PastryPicker } from './PastryPicker';
 import { EmptyState } from './EmptyState';
@@ -16,17 +16,28 @@ import {
   Eye,
   ShoppingBag,
   AlertTriangle,
+  Scale,
 } from 'lucide-react';
 
 interface MembersProps {
   users: User[];
+  ledger: LedgerRow[];
   onAddUser: (name: string) => void;
   onUpdateUserSelections: (userId: string, selections: BizcochoSelections) => void;
   onDeleteUser: (userId: string, reason: string) => void;
 }
 
+// Verde = acreedor, ámbar = deudor. Mismo criterio que BalanceLevadura: nada
+// de rojo, que acá es el color de las bajas.
+const balancePillTone = (balance: number): string => {
+  if (balance > 0) return 'text-apple-green bg-apple-green/10 border-apple-green/20';
+  if (balance < 0) return 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/25';
+  return 'text-gray-400 bg-carbon-light dark:bg-white/5 border-gray-100 dark:border-white/10';
+};
+
 export const Members: React.FC<MembersProps> = ({
   users,
+  ledger,
   onAddUser,
   onUpdateUserSelections,
   onDeleteUser,
@@ -150,6 +161,7 @@ export const Members: React.FC<MembersProps> = ({
               .filter(t => user.selections[t] > 0)
               .map(t => ({ type: t, count: user.selections[t] }));
             const colorClass = getAvatarColor(user.id);
+            const row = ledger.find(r => r.id === user.id);
 
             return (
               <div
@@ -190,6 +202,17 @@ export const Members: React.FC<MembersProps> = ({
                           <ShoppingBag className="w-3 h-3 text-apple-green" />
                           <span>{user.comprasCount ?? 0} compras</span>
                         </span>
+                        {/* Balance de Levadura: puso − comió, en bizcochos. El
+                            detalle y la explicación viven en la pestaña Compra. */}
+                        {row && row.semanas > 0 && (
+                          <span
+                            title={`Balance de Levadura: comió ${row.comio}, puso ${row.puso}`}
+                            className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-1 rounded-lg border tabular-nums ${balancePillTone(row.balance)}`}
+                          >
+                            <Scale className="w-3 h-3" />
+                            <span>{row.balance > 0 ? `+${row.balance}` : row.balance}</span>
+                          </span>
+                        )}
                       </div>
                     </div>
 

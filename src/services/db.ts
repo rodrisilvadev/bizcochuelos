@@ -1,5 +1,5 @@
-import type { AppState, User, BizcochoSelections, HistoryEntry } from '../types';
-import { BIZCOCHO_TYPES } from '../types';
+import type { AppState, User, BizcochoSelections, HistoryEntry, HistoryParticipant } from '../types';
+import { BIZCOCHO_TYPES, SELECTIONS_PER_USER } from '../types';
 
 const LOCAL_STORAGE_KEY = 'bizcochuelos_app_state_v4';
 
@@ -150,6 +150,58 @@ export const applyCemeteryMigration = (state: AppState): boolean => {
   return changed;
 };
 
+// ── Migración del Balance de Levadura ──────────────────────────────────────
+//
+// Las 4 primeras entradas del historial (julio 2026) se guardaron antes de que
+// existiera el campo `participants`, así que no dicen quién comió qué. Sin eso
+// el libro contable no se puede calcular.
+//
+// El padrón se pudo reconstruir con certeza aritmética, no adivinando: los 4
+// pedidos son de 32 bizcochos, y la suma de las elecciones de los 6
+// integrantes actuales da 24. La diferencia son exactamente 8 bizcochos
+// (Queso 1, ddl 2, Margarita 3, jyq 2) = 2 personas × 4, que son Pablo y Fede
+// (Fede seguía contado en los pedidos aunque ya se había ido en junio: la baja
+// nunca se había registrado en los datos). Lucía no entra: su id lleva el
+// timestamp de su alta, el 2026-07-24, posterior al último miércoles del
+// historial.
+const JULY_2026_ROSTER = ['rodri', 'fabri', 'bernardo', 'mauri', 'javier', 'ignacio', 'pablo', 'fede'];
+const JULY_2026_DATES = ['2026-07-01', '2026-07-08', '2026-07-15', '2026-07-22'];
+
+// Nombres de los que ya no están en `users` y por lo tanto no se pueden
+// resolver desde el estado actual.
+const DEPARTED_NAMES: Record<string, string> = { pablo: 'Pablo', fede: 'Fede' };
+
+// Completa el padrón de las entradas viejas del historial. Idempotente: solo
+// toca entradas que no lo tengan, y solo las 4 fechas conocidas — una entrada
+// vieja de otra fecha se deja sin padrón a propósito (el ledger la saltea
+// entera) en vez de inventarle uno.
+//
+// IMPORTANTE: igual que applyCemeteryMigration, NUNCA debe llamarse sobre una
+// copia local no verificada como fresca. Devuelve `true` si modificó algo y
+// quien llama decide si corresponde persistir (ver App.tsx).
+export const applyLedgerMigration = (state: AppState): boolean => {
+  let changed = false;
+
+  for (const entry of state.history) {
+    if (entry.participants && entry.participants.length > 0) continue;
+    if (!JULY_2026_DATES.includes(entry.date)) continue;
+
+    const ate = SELECTIONS_PER_USER;
+    // Si el total no cierra con el padrón reconstruido, no migramos: preferimos
+    // una entrada sin balance antes que un balance mal calculado.
+    if (entry.total !== JULY_2026_ROSTER.length * ate) continue;
+
+    entry.participants = JULY_2026_ROSTER.map(id => ({
+      id,
+      name: state.users.find(u => u.id === id)?.name ?? DEPARTED_NAMES[id] ?? id,
+      ate,
+    }));
+    changed = true;
+  }
+
+  return changed;
+};
+
 export const loadFromCloud = async (): Promise<AppState | null> => {
   try {
     // Cache-busting para traer siempre la última versión
@@ -285,22 +337,34 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
         if (buyerUser) {
           buyerUser.comprasCount = (buyerUser.comprasCount || 0) + 1;
 
-          // Guardamos una foto del pedido de esa semana para el historial.
+          // Guardamos una foto del pedido de esa semana para el historial:
+          // el desglose por tipo (para la panadería) y el padrón por persona
+          // (para el Balance de Levadura). Se registra a todo el grupo,
+          // incluido quien todavía no eligió sus bizcochos — figura con 0,
+          // que es exactamente lo que comió esa semana.
           const items: HistoryEntry['items'] = {};
+          const participants: HistoryParticipant[] = [];
           let total = 0;
           state.users.forEach(user => {
+            let ate = 0;
             BIZCOCHO_TYPES.forEach(type => {
               const count = user.selections[type] || 0;
               if (count > 0) {
                 items[type] = (items[type] || 0) + count;
                 total += count;
+                ate += count;
               }
             });
+            participants.push({ id: user.id, name: user.name, ate });
           });
 
-          const entry: HistoryEntry = { date: nextWednesday, buyerId, buyerName: buyerUser.name, items, total };
+          const entry: HistoryEntry = { date: nextWednesday, buyerId, buyerName: buyerUser.name, items, total, participants };
           state.history.push(entry);
-          if (state.history.length > 60) state.history.shift();
+          // El historial es el libro contable del Balance de Levadura, así que
+          // recortarlo corre los balances en silencio. El tope es alto a
+          // propósito (~10 años); el que se limita es el renderizado, no el
+          // dato (ver History.tsx).
+          if (state.history.length > 520) state.history.shift();
         }
       }
       stateChanged = true;
