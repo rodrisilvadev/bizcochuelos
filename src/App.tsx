@@ -24,8 +24,9 @@ import { WelcomeModal } from './components/WelcomeModal';
 import { RulesModal } from './components/RulesModal';
 import { History } from './components/History';
 import { Cemetery } from './components/Cemetery';
+import { BalanceLevadura } from './components/BalanceLevadura';
 import { SyncErrorToasts } from './components/SyncErrorToasts';
-import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, History as HistoryIcon } from 'lucide-react';
+import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, Scale, History as HistoryIcon } from 'lucide-react';
 import { TombstoneIcon } from './components/TombstoneIcon';
 
 type Theme = 'light' | 'dark';
@@ -37,6 +38,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'cemetery'>('dashboard');
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('bizcochuelos_theme');
     if (saved === 'light' || saved === 'dark') return saved;
@@ -207,6 +209,15 @@ function App() {
       {/* RULES MODAL — mandamientos bizcochísticos */}
       {showRulesModal && <RulesModal onClose={() => setShowRulesModal(false)} />}
 
+      {/* BALANCE MODAL — se abre desde el botón central del footer */}
+      {showBalanceModal && (
+        <BalanceLevadura
+          ledger={ledger}
+          currentUser={currentUser}
+          onClose={() => setShowBalanceModal(false)}
+        />
+      )}
+
       {/* ORDER MODAL — lista para la panadería */}
       {showOrderModal && (
         <div
@@ -334,7 +345,7 @@ function App() {
 
       {/* MAIN */}
       <main className="flex-1 max-w-2xl w-full mx-auto px-4 pt-5 pb-28">
-        {activeTab === 'dashboard' && <Dashboard state={state} ledger={ledger} currentUser={currentUser} onReorderQueue={handleReorderQueue} />}
+        {activeTab === 'dashboard' && <Dashboard state={state} currentUser={currentUser} onReorderQueue={handleReorderQueue} />}
         {activeTab === 'members' && (
           <Members
             users={state.users}
@@ -364,7 +375,10 @@ function App() {
       {/* BOTTOM TAB BAR */}
       {!onboarding && (
       <nav className="fixed bottom-0 left-0 right-0 z-40 glassmorphism border-t border-white/60 shadow-glass">
-        <div className="max-w-2xl mx-auto px-4 py-2 flex items-center justify-around">
+        {/* items-end alinea las etiquetas al mismo baseline pese a que el botón
+            central es más alto. Las otras cuatro pestañas miden igual entre sí,
+            así que para ellas no cambia nada. */}
+        <div className="max-w-2xl mx-auto px-4 py-2 flex items-end justify-around">
           <button
             id="tab-btn-dashboard"
             onClick={() => setActiveTab('dashboard')}
@@ -397,6 +411,24 @@ function App() {
               Integrantes
             </span>
             {activeTab === 'members' && <div className="nav-active-indicator" />}
+          </button>
+
+          {/* Botón central: Balance de Levadura. No es una pestaña — abre un
+              modal, así que a propósito no participa de `activeTab` ni se
+              queda "seleccionado". */}
+          <button
+            id="btn-balance"
+            onClick={() => setShowBalanceModal(true)}
+            title="Balance de Levadura — la verdad dura"
+            aria-label="Ver el Balance de Levadura"
+            className="relative flex flex-col items-center gap-1 px-4 py-1.5 cursor-pointer group"
+          >
+            <div className="w-12 h-12 -mt-7 rounded-2xl bg-apple-green flex items-center justify-center shadow-lifted group-hover:bg-apple-green-hover group-active:scale-95 transition-all duration-200">
+              <Scale className="w-5 h-5 text-carbon-dark" strokeWidth={2.5} />
+            </div>
+            <span className="text-[10px] font-bold text-gray-400 group-hover:text-carbon-dark dark:group-hover:text-white transition-colors">
+              Balance
+            </span>
           </button>
 
           <button
