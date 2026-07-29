@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  getAppState,
+  getPlaceholderState,
   checkAndRotateWednesday,
   applyCemeteryMigration,
   applyLedgerMigration,
@@ -10,9 +10,11 @@ import {
   dbDeleteUser,
   dbCompleteOnboarding,
   dbReorderQueue,
-  loadFromCloud,
-  saveAppState,
+  pullFromCloud,
+  persistDerivedState,
+  seedCloudIfEmpty,
   cacheStateLocally,
+  SyncError,
 } from './services/db';
 import { computeLedger } from './services/ledger';
 import type { AppState, BizcochoSelections, BizcochoType } from './types';
@@ -33,7 +35,11 @@ type Theme = 'light' | 'dark';
 const CURRENT_USER_KEY = 'bizcochuelos_current_user';
 
 function App() {
-  const [state, setState] = useState<AppState>(() => getAppState());
+  // Primer render: la última copia conocida de la nube (o la semilla si este
+  // dispositivo nunca vio nada). Es solo para no mostrar una pantalla vacía —
+  // no se rota, no se migra y no se sube. Rotarla era justamente lo que
+  // fabricaba un historial falso a partir de la semilla.
+  const [state, setState] = useState<AppState>(() => getPlaceholderState());
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem(CURRENT_USER_KEY));
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'cemetery'>('dashboard');
   const [showOrderModal, setShowOrderModal] = useState(false);
@@ -57,32 +63,44 @@ function App() {
   const lastLocalWriteRef = useRef(0);
   const markLocalWrite = () => { lastLocalWriteRef.current = Date.now(); };
 
-  // Al montar: pintamos algo instantáneo con lo que haya en este dispositivo
-  // (checkAndRotateWednesday es puro, no guarda nada — es solo para no
-  // mostrar una cola desactualizada mientras esperamos a la nube).
-  useEffect(() => {
-    setState(prev => checkAndRotateWednesday({ ...prev }));
+  // Toma el estado que vino de la nube, le aplica migraciones y rotación de
+  // miércoles, lo muestra, y persiste SOLO si algo cambió de verdad.
+  //
+  // Todo esto corre únicamente sobre datos recién traídos del servidor. Nunca
+  // sobre la copia local: una copia local vieja rotada y subida borraría los
+  // cambios de todos los demás.
+  const adoptCloudState = async (cloudState: AppState) => {
+    // Sin cortocircuito — las dos migraciones tienen que correr siempre, no
+    // solo hasta que una devuelva true.
+    const cemeteryMigrated = applyCemeteryMigration(cloudState);
+    const ledgerMigrated = applyLedgerMigration(cloudState);
+    const migrated = cemeteryMigrated || ledgerMigrated;
+    const rotated = checkAndRotateWednesday(cloudState);
+    const changed = migrated || rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday;
 
-    loadFromCloud().then(cloudState => {
-      if (cloudState) {
-        // Las migraciones también corren solo sobre una copia recién traída de
-        // la nube (fresca) — antes de rotar, para que la rotación ya opere
-        // sobre el padrón correcto (sin Fede).
-        // Ojo: sin cortocircuito — las dos migraciones tienen que correr
-        // siempre, no solo hasta que una devuelva true.
-        const cemeteryMigrated = applyCemeteryMigration(cloudState);
-        const ledgerMigrated = applyLedgerMigration(cloudState);
-        const migrated = cemeteryMigrated || ledgerMigrated;
-        const rotated = checkAndRotateWednesday({ ...cloudState });
-        setState(rotated);
-        // Solo persistimos si algo cambió de verdad, y solo porque partimos
-        // de una copia recién traída de la nube (fresca) — nunca de la copia
-        // local del propio dispositivo, que podría estar muy vieja y pisar
-        // cambios de otros que este dispositivo no vio.
-        if (migrated || rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday) {
-          saveAppState(rotated);
-        }
-      }
+    if (!changed) {
+      setState(cloudState);
+      cacheStateLocally(cloudState);
+      return;
+    }
+
+    // Si otro dispositivo ganó la carrera y ya hizo la misma rotación, esto
+    // devuelve null: su versión y la nuestra son equivalentes, y el próximo
+    // refresco la trae. No hay nada que reintentar.
+    const saved = await persistDerivedState(rotated);
+    setState(saved ?? rotated);
+    if (saved) cacheStateLocally(saved);
+  };
+
+  // Al montar: traer el estado compartido. Si la nube está vacía de verdad
+  // (primer arranque del grupo), recién ahí se siembra.
+  useEffect(() => {
+    pullFromCloud().then(read => {
+      if (!read.ok) return; // se queda con el placeholder; el polling reintenta
+      if (read.state) return adoptCloudState(read.state);
+      return seedCloudIfEmpty().then(seeded => {
+        if (seeded) setState(seeded);
+      });
     });
   }, []);
 
@@ -97,35 +115,41 @@ function App() {
   // Tiempo real: refrescar el estado compartido cada 15 s.
   useEffect(() => {
     const id = setInterval(async () => {
-      // No pisar un cambio local reciente (ventana de 6 s para el round-trip).
+      // No pisar en pantalla un cambio local que todavía está viajando.
+      // (Que se pise no perdería datos — el guardado ya es atómico contra el
+      // servidor — pero se vería un parpadeo al valor anterior.)
       if (Date.now() - lastLocalWriteRef.current < 6000) return;
-      const cloudState = await loadFromCloud();
-      if (cloudState) {
-        const cemeteryMigrated = applyCemeteryMigration(cloudState);
-        const ledgerMigrated = applyLedgerMigration(cloudState);
-        const migrated = cemeteryMigrated || ledgerMigrated;
-        const rotated = checkAndRotateWednesday({ ...cloudState });
-        setState(rotated);
-        // Persistir en localStorage lo que trajimos de la nube: si no se
-        // hace esto, una mutación local posterior parte de una copia vieja
-        // y pisa cambios de otros usuarios que ya estaban en pantalla.
-        cacheStateLocally(rotated);
-        // Es fresco (viene de la nube recién traída) — si cambió algo, es
-        // seguro subirlo.
-        if (migrated || rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday) {
-          saveAppState(rotated);
-        }
-      }
+      const read = await pullFromCloud();
+      if (read.ok && read.state) await adoptCloudState(read.state);
     }, 15000);
     return () => clearInterval(id);
   }, []);
 
-  const handleSelectUser = async (userId: string) => {
+  // Una mutación que falla NO se aplica en pantalla: db.ts ya avisó con un
+  // toast, y mostrar el cambio como hecho cuando el servidor lo rechazó es
+  // exactamente lo que hacía creer que se había guardado algo que nadie más
+  // iba a ver. Devuelve true solo si quedó guardado de verdad.
+  const runMutation = async (op: () => Promise<AppState>): Promise<boolean> => {
     markLocalWrite();
-    const newState = await dbRecordUserVisit(userId);
-    setState(newState);
+    try {
+      setState(await op());
+      return true;
+    } catch (err) {
+      if (!(err instanceof SyncError)) throw err;
+      // Volvemos a mostrar lo que realmente hay guardado, para que la pantalla
+      // no quede con un valor que el servidor nunca aceptó.
+      const read = await pullFromCloud();
+      if (read.ok && read.state) setState(read.state);
+      return false;
+    }
+  };
+
+  const handleSelectUser = async (userId: string) => {
+    // El login entra igual aunque no se pueda registrar la visita: quedarse
+    // afuera por un contador sería peor que perder el contador.
     setCurrentUser(userId);
     localStorage.setItem(CURRENT_USER_KEY, userId);
+    await runMutation(() => dbRecordUserVisit(userId));
   };
 
   const handleLogout = () => {
@@ -133,30 +157,19 @@ function App() {
     localStorage.removeItem(CURRENT_USER_KEY);
   };
 
-  const handleAddUser = async (name: string) => {
-    markLocalWrite();
-    setState(await dbAddUser(name));
-  };
+  const handleAddUser = (name: string) => runMutation(() => dbAddUser(name));
 
-  const handleUpdateUserSelections = async (userId: string, selections: BizcochoSelections) => {
-    markLocalWrite();
-    setState(await dbUpdateUserSelections(userId, selections));
-  };
+  const handleUpdateUserSelections = (userId: string, selections: BizcochoSelections) =>
+    runMutation(() => dbUpdateUserSelections(userId, selections));
 
-  const handleCompleteOnboarding = async (userId: string, selections: BizcochoSelections) => {
-    markLocalWrite();
-    setState(await dbCompleteOnboarding(userId, selections));
-  };
+  const handleCompleteOnboarding = (userId: string, selections: BizcochoSelections) =>
+    runMutation(() => dbCompleteOnboarding(userId, selections));
 
-  const handleReorderQueue = async (newQueue: string[]) => {
-    markLocalWrite();
-    setState(await dbReorderQueue(newQueue));
-  };
+  const handleReorderQueue = (newQueue: string[]) => runMutation(() => dbReorderQueue(newQueue));
 
   const handleDeleteUser = async (userId: string, reason: string) => {
-    markLocalWrite();
-    setState(await dbDeleteUser(userId, reason));
-    if (currentUser === userId) handleLogout();
+    const ok = await runMutation(() => dbDeleteUser(userId, reason));
+    if (ok && currentUser === userId) handleLogout();
   };
 
   const activeUserObj = state.users.find(u => u.id === currentUser);

@@ -58,9 +58,29 @@ Registro de las bajas del grupo: nombre, mes y epitafio (el motivo, que se pide 
 ## Arquitectura
 
 - **Frontend**: React 19 + TypeScript + Vite + Tailwind v4.
-- **Estado**: vive en `localStorage` del navegador y se sincroniza contra un backend compartido en `/api/state` (GET para leer, POST para guardar). Cada 15s se hace polling para tomar cambios de otros usuarios.
+- **Estado**: la fuente de verdad es **siempre** el backend compartido en `/api/state`. `localStorage` es solo un caché para pintar algo mientras llega la respuesta — nunca es base de una escritura. Cada 15s se hace polling para tomar cambios de otros usuarios.
 - **Backend en dev**: `server.js` (Express) guarda el estado en `state.json` local. Archivo gitignoreado — no se versiona, y puede tener datos reales de uso.
 - **Backend en producción (Vercel)**: `api/state.js` es una función serverless que usa un **GitHub Gist** como almacenamiento compartido. El token (`GIST_TOKEN`) vive solo en las Environment Variables de Vercel, nunca llega al navegador.
+
+### Persistencia: por qué hay un `rev`
+
+El estado es **un solo documento** que se reescribe entero en cada guardado. Sin control de versión eso pierde datos, y los perdió: en julio de 2026 el Gist quedó dos veces reseteado al estado semilla y se perdió una integrante que se había dado de alta.
+
+Fueron dos fallas distintas, las dos arregladas acá:
+
+1. **Un dispositivo sin datos publicaba su semilla.** `getAppState()` subía `INITIAL_STATE` a la nube cuando no encontraba nada en `localStorage`. Abrir la app en un celular nuevo, en incógnito, o después de que el navegador limpiara el storage (iOS lo hace solo a los ~7 días sin uso, y la app se usa una vez por semana) borraba los datos de todo el grupo.
+2. **Dos personas editando se pisaban.** Cada una leía el documento, cambiaba su parte y subía el documento completo; la última en guardar borraba el cambio de la otra.
+
+El estado lleva ahora un contador `rev` que **asigna solo el servidor**. Reglas:
+
+- El cliente manda `POST { expectedRev, state }` con la `rev` sobre la que calculó su cambio.
+- El servidor escribe **solo si** `expectedRev` sigue siendo la `rev` actual; si no, responde `409` con el estado fresco.
+- Ante un `409` el cliente **reaplica su cambio sobre el estado que ganó** y reintenta. Por eso las mutaciones en `db.ts` se escriben como "aplicá este cambio", no como "guardá este estado".
+- `expectedRev: null` significa "creo que la nube está vacía", y el servidor lo acepta solo si de verdad lo está. Eso es lo que hace imposible el caso 1.
+- Un `GET` que falla devuelve **502, no `null`**: el cliente tiene que poder distinguir "todavía no hay nada" de "el backend está caído".
+- Si no se puede guardar, la mutación **falla y se avisa**, y el cambio no se muestra como hecho. No existe el guardado "solo en este dispositivo": era mentira, porque el siguiente refresco lo borraba igual.
+
+La lectura y la escritura contra el Gist no son atómicas entre sí (la API de Gists no tiene escritura condicional), así que la ventana de carrera no es cero — pero pasa de ser todo el rato que alguien tiene el formulario abierto a ser el round-trip del servidor a GitHub.
 
 ## Desarrollo local
 

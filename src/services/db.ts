@@ -202,19 +202,6 @@ export const applyLedgerMigration = (state: AppState): boolean => {
   return changed;
 };
 
-export const loadFromCloud = async (): Promise<AppState | null> => {
-  try {
-    // Cache-busting para traer siempre la última versión
-    const res = await fetch(`${API_URL}?t=${Date.now()}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data) return null;
-    return normalizeState(data as AppState);
-  } catch {
-    return null;
-  }
-};
-
 // Aviso simple (sin librería de estado) para que la UI muestre un toast si el
 // guardado a la nube falla — antes fallaba en silencio y el usuario creía que
 // había guardado cuando en realidad no.
@@ -230,44 +217,115 @@ const notifySyncError = (message: string): void => {
   syncErrorListeners.forEach(listener => listener(message));
 };
 
-const syncToCloud = (state: AppState): void => {
-  fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(state),
-  })
-    .then(res => {
-      if (!res.ok) {
-        console.error('Bizcochuelos: no se pudo guardar en la nube (status ' + res.status + ')');
-        notifySyncError('No se pudo guardar en la nube. Puede que tu cambio no se vea reflejado.');
-      }
-    })
-    .catch(err => {
-      console.error('Bizcochuelos: no se pudo guardar en la nube', err);
-      notifySyncError('Sin conexión: no se pudo guardar. Revisá tu internet.');
+// Error de sincronización: la mutación NO quedó guardada en ningún lado. Se
+// lanza a propósito en vez de guardar solo localmente. Un guardado local que
+// nunca llega a la nube es peor que un error: la persona ve su cambio aplicado,
+// el resto del grupo no lo ve nunca, y el siguiente refresco (que trae el
+// estado compartido) lo borra sin avisar.
+export class SyncError extends Error {
+  readonly outdatedClient: boolean;
+  constructor(message: string, outdatedClient = false) {
+    super(message);
+    this.name = 'SyncError';
+    this.outdatedClient = outdatedClient;
+  }
+}
+
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+// ── Lectura ────────────────────────────────────────────────────────────────
+
+// Resultado de leer la nube. Distinguir "no hay nada guardado" de "no se pudo
+// leer" no es un detalle: son los dos casos en los que antes se devolvía null,
+// y confundirlos es lo que llevaba a tratar un backend caído como una base
+// vacía y escribirle encima el estado semilla.
+export type CloudRead =
+  | { ok: true; state: AppState | null }
+  | { ok: false; error: string };
+
+export const pullFromCloud = async (): Promise<CloudRead> => {
+  let res: Response;
+  try {
+    // Cache-busting para traer siempre la última versión
+    res = await fetch(`${API_URL}?t=${Date.now()}`, { cache: 'no-store' });
+  } catch (err) {
+    return { ok: false, error: `Sin conexión: ${String(err)}` };
+  }
+
+  if (!res.ok) {
+    return { ok: false, error: `El servidor respondió ${res.status}` };
+  }
+
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch (err) {
+    return { ok: false, error: `Respuesta ilegible: ${String(err)}` };
+  }
+
+  if (data === null || data === undefined) return { ok: true, state: null };
+  return { ok: true, state: normalizeState(data as AppState) };
+};
+
+// ── Escritura ──────────────────────────────────────────────────────────────
+
+type CloudWrite =
+  | { ok: true; rev: number }
+  | { ok: false; conflict: true; state: AppState | null }
+  | { ok: false; conflict: false; error: string; outdatedClient: boolean };
+
+// Manda el estado con la `rev` sobre la que se calculó. El servidor solo
+// escribe si esa `rev` sigue siendo la actual (ver api/state.js).
+// `expectedRev === null` significa "creo que la nube está vacía".
+const pushToCloud = async (state: AppState, expectedRev: number | null): Promise<CloudWrite> => {
+  let res: Response;
+  try {
+    res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRev, state }),
     });
+  } catch (err) {
+    return { ok: false, conflict: false, error: `Sin conexión: ${String(err)}`, outdatedClient: false };
+  }
+
+  let body: { rev?: number; state?: AppState; error?: string; outdatedClient?: boolean } = {};
+  try { body = await res.json(); } catch { /* respuesta sin cuerpo útil */ }
+
+  if (res.ok) return { ok: true, rev: typeof body.rev === 'number' ? body.rev : 0 };
+
+  if (res.status === 409) {
+    return { ok: false, conflict: true, state: body.state ? normalizeState(body.state) : null };
+  }
+
+  return {
+    ok: false,
+    conflict: false,
+    error: body.error ?? `El servidor respondió ${res.status}`,
+    outdatedClient: res.status === 426 || body.outdatedClient === true,
+  };
 };
 
 // ── Local storage ──────────────────────────────────────────────────────────
 
-export const getAppState = (): AppState => {
+// Última copia CONOCIDA de la nube, para pintar algo instantáneo al abrir la
+// app. Nunca es fuente de verdad: no se usa como base de ninguna escritura
+// (eso lo garantiza la `rev`, que solo asigna el servidor).
+export const getCachedState = (): AppState | null => {
   try {
     const data = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!data) {
-      saveAppState(INITIAL_STATE);
-      return INITIAL_STATE;
-    }
+    if (!data) return null;
     return normalizeState(JSON.parse(data));
   } catch {
-    return INITIAL_STATE;
+    return null;
   }
 };
 
-// Solo cachea localmente, sin volver a subir a la nube. Se usa para reflejar
-// en localStorage lo que ya trajimos del servidor (polling, carga inicial),
-// para que una mutación posterior no parta de una copia local vieja y pise
-// cambios de otros usuarios que ya están en pantalla pero nunca se guardaron
-// en este dispositivo.
+// Estado semilla para el primer render de un dispositivo que todavía no sabe
+// nada. NO es dato real y no se sube nunca por esta vía: solo se muestra
+// mientras llega la respuesta de la nube.
+export const getPlaceholderState = (): AppState => getCachedState() ?? clone(INITIAL_STATE);
+
 export const cacheStateLocally = (state: AppState): void => {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
@@ -276,48 +334,103 @@ export const cacheStateLocally = (state: AppState): void => {
   }
 };
 
-export const saveAppState = (state: AppState): void => {
-  cacheStateLocally(state);
-  syncToCloud(state);
+// ── Mutaciones ─────────────────────────────────────────────────────────────
+
+const MAX_ATTEMPTS = 4;
+
+// Toda mutación se expresa como "aplicá este cambio sobre el estado actual",
+// no como "guardá este estado". La diferencia es la que arregla el bug: si
+// alguien guardó en el medio, se reaplica el cambio sobre el estado nuevo y se
+// reintenta, en vez de subir un documento entero calculado sobre datos viejos
+// (que borraba el cambio del otro).
+const mutate = async (apply: (state: AppState) => void): Promise<AppState> => {
+  let read: CloudRead = await pullFromCloud();
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (!read.ok) {
+      const message = 'No se pudo guardar: no hay conexión con el servidor. Probá de nuevo.';
+      notifySyncError(message);
+      throw new SyncError(read.error);
+    }
+
+    // La nube vacía es el único caso en el que la semilla es dato legítimo, y
+    // el servidor lo verifica de nuevo antes de aceptarlo (expectedRev null
+    // solo se acepta si el documento realmente está vacío).
+    const base = read.state ?? clone(INITIAL_STATE);
+    const expectedRev = read.state ? read.state.rev ?? 0 : null;
+
+    const next = normalizeState(clone(base));
+    apply(next);
+
+    const write = await pushToCloud(next, expectedRev);
+
+    if (write.ok) {
+      const saved = { ...next, rev: write.rev };
+      cacheStateLocally(saved);
+      return saved;
+    }
+
+    if (write.conflict) {
+      // Alguien guardó primero. Volvemos a arrancar del estado que ganó.
+      read = write.state ? { ok: true, state: write.state } : await pullFromCloud();
+      continue;
+    }
+
+    const message = write.outdatedClient
+      ? 'Tenés una versión vieja de la app abierta. Recargá la página para poder guardar.'
+      : 'No se pudo guardar en la nube. Tu cambio no quedó registrado.';
+    notifySyncError(message);
+    throw new SyncError(write.error, write.outdatedClient);
+  }
+
+  const message = 'Hay mucha actividad en este momento y no se pudo guardar. Probá de nuevo.';
+  notifySyncError(message);
+  throw new SyncError('Demasiados conflictos consecutivos');
 };
 
-// Antes de cualquier mutación, traemos el estado más fresco posible: la nube
-// es la fuente de verdad compartida entre todos los usuarios. Si la nube no
-// responde (offline, error de red), recién ahí caemos a la copia local — pero
-// marcada como "no fresca", para que quien mute ese estado sepa que NO debe
-// subirla a la nube tal cual (ver persistMutation).
-const getFreshState = async (): Promise<{ state: AppState; fresh: boolean }> => {
-  const cloudState = await loadFromCloud();
-  if (cloudState) {
-    cacheStateLocally(cloudState);
-    return { state: cloudState, fresh: true };
+// Guarda un estado ya calculado (rotación de miércoles, migraciones) usando la
+// `rev` que ese estado trae de la nube. Si perdió la carrera contra otro
+// dispositivo simplemente no reintenta: el otro ya hizo el mismo trabajo.
+export const persistDerivedState = async (state: AppState): Promise<AppState | null> => {
+  const write = await pushToCloud(state, state.rev ?? 0);
+  if (write.ok) {
+    const saved = { ...state, rev: write.rev };
+    cacheStateLocally(saved);
+    return saved;
   }
-  return { state: getAppState(), fresh: false };
+  if (!write.conflict && write.outdatedClient) {
+    notifySyncError('Tenés una versión vieja de la app abierta. Recargá la página.');
+  }
+  return null;
 };
 
-// Guarda el resultado de una mutación. Si el estado de partida no era fresco
-// (la nube no respondió y se cayó a la copia local), NO lo subimos: pisaría
-// en la nube los cambios de otros usuarios que este dispositivo nunca llegó
-// a ver. En ese caso el cambio queda solo en este dispositivo y se avisa.
-const persistMutation = (state: AppState, fresh: boolean): void => {
-  if (fresh) {
-    saveAppState(state);
-  } else {
-    cacheStateLocally(state);
-    notifySyncError('No se pudo conectar a la nube: tu cambio quedó guardado solo en este dispositivo.');
-  }
+// Siembra la nube la primera vez, y SOLO si de verdad está vacía. El servidor
+// vuelve a verificarlo (expectedRev null contra documento vacío), así que dos
+// dispositivos arrancando a la vez no se pisan.
+export const seedCloudIfEmpty = async (): Promise<AppState | null> => {
+  const seed = clone(INITIAL_STATE);
+  const write = await pushToCloud(seed, null);
+  if (!write.ok) return null;
+  const saved = { ...seed, rev: write.rev };
+  cacheStateLocally(saved);
+  return saved;
 };
 
 // ── Domain logic ───────────────────────────────────────────────────────────
 
-// Función pura: rota la cola si corresponde y devuelve el estado modificado,
-// pero NUNCA guarda por su cuenta. Guardar acá sería peligroso: si a esta
-// función se le pasa una copia local vieja (de un dispositivo que no abría la
-// app hace tiempo), guardar de inmediato pisaría en la nube los cambios más
-// recientes de otros usuarios que ese dispositivo nunca llegó a ver. Quien
-// llama decide si corresponde persistir, y solo debería hacerlo cuando el
-// estado de partida vino fresco de la nube.
-export const checkAndRotateWednesday = (state: AppState): AppState => {
+// Función pura: rota la cola si corresponde y devuelve un estado NUEVO, pero
+// NUNCA guarda por su cuenta. Guardar acá sería peligroso: si a esta función se
+// le pasa una copia local vieja (de un dispositivo que no abría la app hace
+// tiempo), guardar de inmediato pisaría en la nube los cambios más recientes de
+// otros usuarios que ese dispositivo nunca llegó a ver. Quien llama decide si
+// corresponde persistir, y solo debería hacerlo cuando el estado de partida
+// vino fresco de la nube.
+//
+// Clona antes de tocar nada: recibía el estado y lo mutaba en el lugar, así que
+// quien llamaba con un spread superficial ({ ...cloudState }) igual se quedaba
+// con los arrays originales modificados y no podía comparar antes/después.
+export const checkAndRotateWednesday = (input: AppState): AppState => {
+  const state = clone(input);
   const todayStr = new Date().toISOString().split('T')[0];
   let currentWednesday = state.lastProcessedWednesday;
   let nextWednesday = getNextWednesday(currentWednesday);
@@ -383,68 +496,65 @@ export const checkAndRotateWednesday = (state: AppState): AppState => {
 // Alta nueva: entra a la cola en 2° lugar (no compra el próximo miércoles,
 // le toca el siguiente) y queda "needsOnboarding" hasta que ella misma elija
 // sus 4 bizcochos al ingresar por primera vez.
-export const dbAddUser = async (name: string): Promise<AppState> => {
-  const { state, fresh } = await getFreshState();
-  const newId = `user-${Date.now()}`;
-  const newUser: User = {
-    id: newId, name: name.trim(), selections: createEmptySelections(),
-    ingresosCount: 0, comprasCount: 0, needsOnboarding: true,
-  };
-  state.users.push(newUser);
-  if (state.buyerQueue.length >= 2) state.buyerQueue.splice(1, 0, newId);
-  else state.buyerQueue.push(newId);
-  persistMutation(state, fresh);
-  return state;
-};
+export const dbAddUser = async (name: string): Promise<AppState> =>
+  mutate(state => {
+    const newId = `user-${Date.now()}`;
+    const newUser: User = {
+      id: newId, name: name.trim(), selections: createEmptySelections(),
+      ingresosCount: 0, comprasCount: 0, needsOnboarding: true,
+    };
+    state.users.push(newUser);
+    if (state.buyerQueue.length >= 2) state.buyerQueue.splice(1, 0, newId);
+    else state.buyerQueue.push(newId);
+  });
 
-export const dbUpdateUserSelections = async (userId: string, selections: BizcochoSelections): Promise<AppState> => {
-  const { state, fresh } = await getFreshState();
-  const user = state.users.find(u => u.id === userId);
-  if (user) { user.selections = selections; persistMutation(state, fresh); }
-  return state;
-};
+export const dbUpdateUserSelections = async (userId: string, selections: BizcochoSelections): Promise<AppState> =>
+  mutate(state => {
+    const user = state.users.find(u => u.id === userId);
+    // Si en el ínterin lo dieron de baja, no lo resucitamos.
+    if (user) user.selections = { ...selections };
+  });
 
-export const dbCompleteOnboarding = async (userId: string, selections: BizcochoSelections): Promise<AppState> => {
-  const { state, fresh } = await getFreshState();
-  const user = state.users.find(u => u.id === userId);
-  if (user) {
-    user.selections = selections;
-    user.needsOnboarding = false;
-    persistMutation(state, fresh);
-  }
-  return state;
-};
+export const dbCompleteOnboarding = async (userId: string, selections: BizcochoSelections): Promise<AppState> =>
+  mutate(state => {
+    const user = state.users.find(u => u.id === userId);
+    if (user) {
+      user.selections = { ...selections };
+      user.needsOnboarding = false;
+    }
+  });
 
 // Gestión manual de turnos: reordenar la cola (para saltear a alguien de
 // vacaciones o hacer un swap entre dos integrantes). No toca comprasCount,
 // porque nadie compró todavía.
-export const dbReorderQueue = async (newQueue: string[]): Promise<AppState> => {
-  const { state, fresh } = await getFreshState();
-  state.buyerQueue = newQueue;
-  persistMutation(state, fresh);
-  return state;
-};
+export const dbReorderQueue = async (newQueue: string[]): Promise<AppState> =>
+  mutate(state => {
+    // La cola se reordena sobre el estado que el usuario tenía en pantalla, que
+    // pudo quedar viejo. Nos quedamos con el orden pedido pero solo para la
+    // gente que sigue existiendo, y no perdemos a nadie que se haya sumado en
+    // el medio (va al final en vez de desaparecer de la cola).
+    const alive = new Set(state.users.map(u => u.id));
+    const requested = newQueue.filter(id => alive.has(id));
+    const missing = state.buyerQueue.filter(id => alive.has(id) && !requested.includes(id));
+    const added = state.users.map(u => u.id).filter(id => !requested.includes(id) && !missing.includes(id));
+    state.buyerQueue = [...requested, ...missing, ...added];
+  });
 
-export const dbDeleteUser = async (userId: string, reason: string): Promise<AppState> => {
-  const { state, fresh } = await getFreshState();
-  const user = state.users.find(u => u.id === userId);
-  if (user) {
+export const dbDeleteUser = async (userId: string, reason: string): Promise<AppState> =>
+  mutate(state => {
+    const user = state.users.find(u => u.id === userId);
+    if (!user) return; // ya lo dieron de baja desde otro dispositivo
     state.cemetery.push({ name: user.name, month: new Date().toISOString().slice(0, 7), reason });
-  }
-  state.users = state.users.filter(u => u.id !== userId);
-  state.buyerQueue = state.buyerQueue.filter(id => id !== userId);
-  persistMutation(state, fresh);
-  return state;
-};
+    state.users = state.users.filter(u => u.id !== userId);
+    state.buyerQueue = state.buyerQueue.filter(id => id !== userId);
+  });
 
-export const dbRecordUserVisit = async (userId: string): Promise<AppState> => {
-  const { state, fresh } = await getFreshState();
-  const user = state.users.find(u => u.id === userId);
-  if (user) {
-    user.ingresosCount = (user.ingresosCount || 0) + 1;
-    state.lastReviewer = user.name;
-    state.lastReviewTimestamp = new Date().toISOString();
-    persistMutation(state, fresh);
-  }
-  return state;
-};
+export const dbRecordUserVisit = async (userId: string): Promise<AppState> =>
+  mutate(state => {
+    const user = state.users.find(u => u.id === userId);
+    if (user) {
+      user.ingresosCount = (user.ingresosCount || 0) + 1;
+      state.lastReviewer = user.name;
+      state.lastReviewTimestamp = new Date().toISOString();
+    }
+  });

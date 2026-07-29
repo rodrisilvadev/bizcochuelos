@@ -96,4 +96,9 @@ export interface AppState {
   lastReviewTimestamp: string | null;
   history: HistoryEntry[]; // Pedidos de miércoles pasados, más reciente al final
   cemetery: CemeteryEntry[]; // Bajas del grupo, más reciente al final
+  // Versión del documento, la asigna SIEMPRE el servidor. El cliente la manda
+  // de vuelta al guardar para que el servidor pueda rechazar la escritura si
+  // alguien más guardó en el medio (ver api/state.js). Opcional solo para
+  // estados guardados antes de que existiera el versionado, que valen 0.
+  rev?: number;
 }
