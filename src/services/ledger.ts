@@ -1,4 +1,5 @@
-import type { AppState, LedgerRow } from '../types';
+import type { AppState, HistoryEntry, HistoryParticipant, LedgerRow } from '../types';
+import { PUNTOS_BIZCOCHO_COMUN } from '../types';
 
 // ── Balance de Levadura ────────────────────────────────────────────────────
 //
@@ -7,17 +8,22 @@ import type { AppState, LedgerRow } from '../types';
 // es de 8 personas cuesta el doble que comprar cuando es de 4. Contar turnos
 // trata a los dos casos igual.
 //
-// La unidad correcta no es el turno ni la plata: es el bizcocho. El invariante
-// justo es "cada uno debería haber puesto tantos bizcochos como los que comió":
+// La unidad correcta no es el turno ni la plata: es el PUNTO — la fracción del
+// presupuesto semanal que ocupa lo que cada uno se lleva (ver types.ts). Antes
+// era directamente "el bizcocho", que alcanzaba mientras todos costaran lo
+// mismo; con el pan tortuga integral ya no, porque donde entran 4 bizcochos
+// entran 3 tortugas y contar unidades le haría figurar menos consumo a quien
+// elige lo más caro. El invariante justo es "cada uno debería haber puesto
+// tantos puntos como los que comió":
 //
-//   puso_i    = Σ (total del pedido) sobre las semanas en que le tocó comprar
+//   puso_i    = Σ (puntos del pedido) sobre las semanas en que le tocó comprar
 //   comió_i   = Σ (lo que comió esa semana) sobre las semanas en que estuvo
 //   balance_i = puso_i − comió_i
 //
 // Propiedad clave: Σ balance_i = 0 sobre TODO el que alguna vez participó.
 // La semana que comprás tu neto es (total − lo tuyo), positivo; el de cada
-// otro es (−lo suyo). Como `total` es justamente la suma de lo que come todo
-// el grupo, se cancela. Es un libro contable cerrado — por eso el ledger
+// otro es (−lo suyo). Como el total del pedido es justamente la suma de lo que
+// come todo el grupo, se cancela. Es un libro contable cerrado — por eso el ledger
 // incluye a los que ya se fueron: sacarlos rompería el cero y repartiría su
 // deuda entre los que quedan sin que se note.
 //
@@ -33,6 +39,17 @@ import type { AppState, LedgerRow } from '../types';
 // balance sin su fecha de corte invita a discutir números que no cubren lo que
 // la gente cree que cubren.
 export const LEDGER_START = '2026-07-01';
+
+// Puntos que consumió una persona esa semana. Las entradas anteriores a los
+// puntos guardaron solo unidades, y ahí la conversión es exacta: en esa época
+// todos los bizcochos costaban lo mismo, así que cada unidad son 3 puntos.
+const puntosDe = (p: HistoryParticipant): number => p.puntos ?? p.ate * PUNTOS_BIZCOCHO_COMUN;
+
+// Lo mismo para el pedido entero. Tiene que usar el MISMO criterio que
+// `puntosDe`, o el crédito del comprador no cancelaría el consumo del grupo y
+// los balances dejarían de sumar cero.
+const puntosDelPedido = (entry: HistoryEntry): number =>
+  entry.puntos ?? entry.total * PUNTOS_BIZCOCHO_COMUN;
 
 // Ordena el ledger de más deudor a más acreedor. Ese orden es el orden en que
 // "debería" tocar comprar: el más negativo es el que más debe.
@@ -71,13 +88,13 @@ export const computeLedger = (state: AppState): LedgerRow[] => {
 
     for (const p of entry.participants) {
       const row = rowFor(p.id, p.name);
-      row.comio += p.ate;
+      row.comio += puntosDe(p);
       row.semanas += 1;
     }
 
     const buyer = rows.get(entry.buyerId);
     if (buyer) {
-      buyer.puso += entry.total;
+      buyer.puso += puntosDelPedido(entry);
       buyer.compras += 1;
     }
   }

@@ -1,5 +1,12 @@
-import type { AppState, User, BizcochoSelections, HistoryEntry, HistoryParticipant } from '../types';
-import { BIZCOCHO_TYPES, SELECTIONS_PER_USER } from '../types';
+import type { AppState, User, BizcochoSelections, CatalogItem, HistoryEntry, HistoryParticipant } from '../types';
+import {
+  DEFAULT_CATALOG,
+  CATALOG_VERSION,
+  CATALOG_V2_ITEMS,
+  PRESUPUESTO_PESOS_DEFAULT,
+  PUNTOS_BIZCOCHO_COMUN,
+} from '../types';
+import { alinearConCatalogo, puntosPorTipo } from './catalog';
 
 const LOCAL_STORAGE_KEY = 'bizcochuelos_app_state_v4';
 
@@ -8,12 +15,14 @@ const LOCAL_STORAGE_KEY = 'bizcochuelos_app_state_v4';
 // cliente nunca lo ve. GET devuelve el estado, POST lo guarda.
 const API_URL = '/api/state';
 
-export const createEmptySelections = (): BizcochoSelections => {
-  return BIZCOCHO_TYPES.reduce((acc, type) => {
-    acc[type] = 0;
+// Una selección vacía para el catálogo que esté vigente. Recibe el catálogo en
+// lugar de leer una lista fija: la lista de bizcochos ahora se edita desde la
+// app, así que "todos los tipos" solo existe en el estado.
+export const createEmptySelections = (catalog: CatalogItem[]): BizcochoSelections =>
+  catalog.reduce((acc, item) => {
+    acc[item.name] = 0;
     return acc;
   }, {} as BizcochoSelections);
-};
 
 export const getNextWednesday = (dateStr: string): string => {
   const d = new Date(dateStr + 'T12:00:00');
@@ -56,6 +65,10 @@ const INITIAL_STATE: AppState = {
     }
   ],
   buyerQueue: ['ignacio', 'rodri', 'bernardo', 'mauri', 'javier', 'fabri'],
+  catalog: DEFAULT_CATALOG.map(item => ({ ...item })),
+  catalogVersion: CATALOG_VERSION,
+  presupuestoPesos: PRESUPUESTO_PESOS_DEFAULT,
+  admin: { userIds: ['rodri'], pinHash: null },
   lastProcessedWednesday: '2026-06-24',
   lastReviewer: '',
   lastReviewTimestamp: null,
@@ -77,6 +90,30 @@ const INITIAL_STATE: AppState = {
 const normalizeState = (state: AppState): AppState => {
   if (!Array.isArray(state.history)) state.history = [];
   if (!Array.isArray(state.cemetery)) state.cemetery = [];
+  // El catálogo, el presupuesto y la configuración de administración se
+  // agregaron después. Se completan acá, en la lectura, para que ningún
+  // componente tenga que preguntarse si existen. Rellenar no es migrar: la
+  // migración (que además AGREGA ítems nuevos y por lo tanto hay que guardar)
+  // vive en applyCatalogMigration, y solo corre sobre estado fresco de la nube.
+  if (!Array.isArray(state.catalog) || state.catalog.length === 0) {
+    state.catalog = DEFAULT_CATALOG.map(item => ({ ...item }));
+    // A propósito NO se marca `catalogVersion` acá. Rellenar es para que la
+    // pantalla tenga algo que dibujar; marcar la versión es decir "esto ya
+    // quedó guardado", y no es cierto. Dejarlo sin marcar es lo que hace que
+    // applyCatalogMigration detecte el cambio y lo suba al estado compartido,
+    // en vez de que cada dispositivo re-siembre el catálogo en su memoria para
+    // siempre sin que nadie lo escriba nunca.
+  }
+  if (typeof state.presupuestoPesos !== 'number' || state.presupuestoPesos <= 0) {
+    state.presupuestoPesos = PRESUPUESTO_PESOS_DEFAULT;
+  }
+  if (!state.admin || typeof state.admin !== 'object') {
+    state.admin = { userIds: ['rodri'], pinHash: null };
+  }
+  if (!Array.isArray(state.admin.userIds) || state.admin.userIds.length === 0) {
+    state.admin.userIds = ['rodri'];
+  }
+  if (typeof state.admin.pinHash !== 'string') state.admin.pinHash = null;
   return state;
 };
 
@@ -186,7 +223,12 @@ export const applyLedgerMigration = (state: AppState): boolean => {
     if (entry.participants && entry.participants.length > 0) continue;
     if (!JULY_2026_DATES.includes(entry.date)) continue;
 
-    const ate = SELECTIONS_PER_USER;
+    // En esa época cada persona elegía exactamente 4 bizcochos, todos del
+    // mismo precio. No se le escriben `puntos` a propósito: el ledger convierte
+    // unidades a puntos por su cuenta para TODA entrada vieja (ver
+    // `puntosDe` en ledger.ts), así que dejarlo sin el campo mantiene un solo
+    // camino de conversión en vez de dos que podrían discrepar.
+    const ate = 4;
     // Si el total no cierra con el padrón reconstruido, no migramos: preferimos
     // una entrada sin balance antes que un balance mal calculado.
     if (entry.total !== JULY_2026_ROSTER.length * ate) continue;
@@ -196,6 +238,58 @@ export const applyLedgerMigration = (state: AppState): boolean => {
       name: state.users.find(u => u.id === id)?.name ?? DEPARTED_NAMES[id] ?? id,
       ate,
     }));
+    changed = true;
+  }
+
+  return changed;
+};
+
+// ── Migración del catálogo ─────────────────────────────────────────────────
+//
+// La lista de bizcochos pasó de ser una constante del código a ser dato
+// editable del estado compartido. Esta migración siembra esa lista en los
+// estados que se guardaron antes, y agrega los ítems que introdujo cada
+// versión posterior de la semilla.
+//
+// El guardarraíl es `catalogVersion`: solo se agregan los ítems de versiones
+// que este estado todavía no vio. Sin eso, un ítem borrado a mano desde el
+// panel de administración reaparecería en el próximo arranque de cualquier
+// dispositivo, y no habría forma de sacarlo nunca.
+//
+// IMPORTANTE: igual que las otras migraciones, NUNCA debe llamarse sobre una
+// copia local no verificada como fresca. Devuelve `true` si modificó algo y
+// quien llama decide si corresponde persistir (ver App.tsx).
+export const applyCatalogMigration = (state: AppState): boolean => {
+  let changed = false;
+
+  if (!Array.isArray(state.catalog) || state.catalog.length === 0) {
+    state.catalog = DEFAULT_CATALOG.map(item => ({ ...item }));
+    state.catalogVersion = CATALOG_VERSION;
+    changed = true;
+  } else {
+    const vistos = typeof state.catalogVersion === 'number' ? state.catalogVersion : 1;
+    if (vistos < 2) {
+      for (const name of CATALOG_V2_ITEMS) {
+        const semilla = DEFAULT_CATALOG.find(item => item.name === name);
+        if (semilla && !state.catalog.some(item => item.name === name)) {
+          state.catalog.push({ ...semilla });
+          changed = true;
+        }
+      }
+    }
+    if (vistos !== CATALOG_VERSION) {
+      state.catalogVersion = CATALOG_VERSION;
+      changed = true;
+    }
+  }
+
+  if (typeof state.presupuestoPesos !== 'number' || state.presupuestoPesos <= 0) {
+    state.presupuestoPesos = PRESUPUESTO_PESOS_DEFAULT;
+    changed = true;
+  }
+
+  if (!state.admin || !Array.isArray(state.admin.userIds) || state.admin.userIds.length === 0) {
+    state.admin = { userIds: ['rodri'], pinHash: state.admin?.pinHash ?? null };
     changed = true;
   }
 
@@ -455,23 +549,38 @@ export const checkAndRotateWednesday = (input: AppState): AppState => {
           // (para el Balance de Levadura). Se registra a todo el grupo,
           // incluido quien todavía no eligió sus bizcochos — figura con 0,
           // que es exactamente lo que comió esa semana.
+          //
+          // Se guardan las dos unidades: `ate`/`total` en unidades (lo que
+          // cuenta la panadería y lo que se muestra en el historial) y
+          // `puntos` (lo que usa el Balance de Levadura). El precio de cada
+          // ítem puede cambiar después, así que los puntos se congelan acá con
+          // los del momento de la compra — recalcularlos más tarde correría
+          // balances viejos por un aumento de precio de hoy.
+          const puntos = puntosPorTipo(state);
           const items: HistoryEntry['items'] = {};
           const participants: HistoryParticipant[] = [];
           let total = 0;
+          let totalPuntos = 0;
           state.users.forEach(user => {
             let ate = 0;
-            BIZCOCHO_TYPES.forEach(type => {
+            let atePuntos = 0;
+            state.catalog.forEach(({ name: type }) => {
               const count = user.selections[type] || 0;
               if (count > 0) {
                 items[type] = (items[type] || 0) + count;
                 total += count;
                 ate += count;
+                atePuntos += count * (puntos[type] ?? PUNTOS_BIZCOCHO_COMUN);
               }
             });
-            participants.push({ id: user.id, name: user.name, ate });
+            totalPuntos += atePuntos;
+            participants.push({ id: user.id, name: user.name, ate, puntos: atePuntos });
           });
 
-          const entry: HistoryEntry = { date: nextWednesday, buyerId, buyerName: buyerUser.name, items, total, participants };
+          const entry: HistoryEntry = {
+            date: nextWednesday, buyerId, buyerName: buyerUser.name,
+            items, total, puntos: totalPuntos, participants,
+          };
           state.history.push(entry);
           // El historial es el libro contable del Balance de Levadura, así que
           // recortarlo corre los balances en silencio. El tope es alto a
@@ -495,12 +604,12 @@ export const checkAndRotateWednesday = (input: AppState): AppState => {
 
 // Alta nueva: entra a la cola en 2° lugar (no compra el próximo miércoles,
 // le toca el siguiente) y queda "needsOnboarding" hasta que ella misma elija
-// sus 4 bizcochos al ingresar por primera vez.
+// sus bizcochos al ingresar por primera vez.
 export const dbAddUser = async (name: string): Promise<AppState> =>
   mutate(state => {
     const newId = `user-${Date.now()}`;
     const newUser: User = {
-      id: newId, name: name.trim(), selections: createEmptySelections(),
+      id: newId, name: name.trim(), selections: createEmptySelections(state.catalog),
       ingresosCount: 0, comprasCount: 0, needsOnboarding: true,
     };
     state.users.push(newUser);
@@ -508,18 +617,22 @@ export const dbAddUser = async (name: string): Promise<AppState> =>
     else state.buyerQueue.push(newId);
   });
 
+// Las selecciones se alinean con el catálogo que hay en el servidor al momento
+// de guardar, no con el que tenía la pantalla: si alguien agregó o borró un
+// ítem mientras estaba abierto el formulario, lo que se guarda no arrastra
+// tipos que ya no existen ni pierde los nuevos (entran en 0).
 export const dbUpdateUserSelections = async (userId: string, selections: BizcochoSelections): Promise<AppState> =>
   mutate(state => {
     const user = state.users.find(u => u.id === userId);
     // Si en el ínterin lo dieron de baja, no lo resucitamos.
-    if (user) user.selections = { ...selections };
+    if (user) user.selections = alinearConCatalogo(selections, state.catalog);
   });
 
 export const dbCompleteOnboarding = async (userId: string, selections: BizcochoSelections): Promise<AppState> =>
   mutate(state => {
     const user = state.users.find(u => u.id === userId);
     if (user) {
-      user.selections = { ...selections };
+      user.selections = alinearConCatalogo(selections, state.catalog);
       user.needsOnboarding = false;
     }
   });
@@ -557,4 +670,58 @@ export const dbRecordUserVisit = async (userId: string): Promise<AppState> =>
       state.lastReviewer = user.name;
       state.lastReviewTimestamp = new Date().toISOString();
     }
+  });
+
+// ── Administración: catálogo, presupuesto y PIN ────────────────────────────
+//
+// Estas mutaciones no verifican el PIN: la puerta está en la interfaz (ver
+// services/admin.ts, que explica hasta dónde llega esa protección y por qué).
+// Verificarlo acá no agregaría nada — el cliente ya tiene el estado entero y
+// el servidor no autentica a nadie.
+
+export const dbAddCatalogItem = async (name: string, precio: number): Promise<AppState> =>
+  mutate(state => {
+    const limpio = name.trim();
+    if (!limpio) return;
+    // El nombre es la identidad del ítem (es la clave en las selecciones y en
+    // el historial), así que un duplicado que solo difiere en mayúsculas o
+    // espacios sería un segundo ítem indistinguible del primero.
+    const yaEsta = state.catalog.some(item => item.name.toLowerCase() === limpio.toLowerCase());
+    if (yaEsta) return;
+    state.catalog.push({ name: limpio, precio });
+  });
+
+export const dbUpdateCatalogItem = async (name: string, precio: number): Promise<AppState> =>
+  mutate(state => {
+    const item = state.catalog.find(i => i.name === name);
+    if (item) item.precio = precio;
+  });
+
+// Sacar un ítem del catálogo lo saca también de las selecciones de todo el
+// mundo. La alternativa —dejarlo colgado en las selecciones— le mostraría a la
+// gente un bizcocho que ya no se puede pedir y que no sabría cómo sacar.
+//
+// El historial NO se toca: guarda los nombres como texto, así que los pedidos
+// viejos siguen mostrando lo que realmente se compró ese día.
+export const dbRemoveCatalogItem = async (name: string): Promise<AppState> =>
+  mutate(state => {
+    state.catalog = state.catalog.filter(item => item.name !== name);
+    for (const user of state.users) {
+      user.selections = alinearConCatalogo(user.selections, state.catalog);
+    }
+  });
+
+// El presupuesto semanal en pesos. Es el divisor que convierte precios en
+// puntos, así que subirlo sin tocar los precios abarata todo en puntos (entra
+// más por semana) y viceversa. Cuando aumenta la panadería, lo correcto es
+// subir precios y presupuesto juntos: ahí los puntos —y por lo tanto el
+// Balance de Levadura— no se mueven.
+export const dbSetPresupuesto = async (pesos: number): Promise<AppState> =>
+  mutate(state => {
+    if (pesos > 0) state.presupuestoPesos = Math.round(pesos);
+  });
+
+export const dbSetAdminPin = async (pinHash: string): Promise<AppState> =>
+  mutate(state => {
+    state.admin = { userIds: state.admin?.userIds?.length ? state.admin.userIds : ['rodri'], pinHash };
   });

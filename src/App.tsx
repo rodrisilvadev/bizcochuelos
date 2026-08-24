@@ -4,12 +4,18 @@ import {
   checkAndRotateWednesday,
   applyCemeteryMigration,
   applyLedgerMigration,
+  applyCatalogMigration,
   dbRecordUserVisit,
   dbAddUser,
   dbUpdateUserSelections,
   dbDeleteUser,
   dbCompleteOnboarding,
   dbReorderQueue,
+  dbAddCatalogItem,
+  dbUpdateCatalogItem,
+  dbRemoveCatalogItem,
+  dbSetPresupuesto,
+  dbSetAdminPin,
   pullFromCloud,
   persistDerivedState,
   seedCloudIfEmpty,
@@ -17,8 +23,8 @@ import {
   SyncError,
 } from './services/db';
 import { computeLedger } from './services/ledger';
+import { isAdminUser, isUnlocked, setUnlocked } from './services/admin';
 import type { AppState, BizcochoSelections, BizcochoType } from './types';
-import { BIZCOCHO_TYPES } from './types';
 import { Dashboard } from './components/Dashboard';
 import { Members } from './components/Members';
 import { LoginModal } from './components/LoginModal';
@@ -27,8 +33,10 @@ import { RulesModal } from './components/RulesModal';
 import { History } from './components/History';
 import { Cemetery } from './components/Cemetery';
 import { BalanceLevadura } from './components/BalanceLevadura';
+import { AdminPanel } from './components/AdminPanel';
+import { PinModal } from './components/PinModal';
 import { SyncErrorToasts } from './components/SyncErrorToasts';
-import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, Scale, History as HistoryIcon } from 'lucide-react';
+import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, Scale, ShieldCheck, History as HistoryIcon } from 'lucide-react';
 import { TombstoneIcon } from './components/TombstoneIcon';
 
 type Theme = 'light' | 'dark';
@@ -45,6 +53,11 @@ function App() {
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  // Qué hacer una vez que se pase el PIN. Guardar la intención evita el paso
+  // extra de "desbloqueaste, ahora volvé a tocar el botón".
+  const [pinIntent, setPinIntent] = useState<'panel' | 'reorder' | 'change' | null>(null);
+  const [unlocked, setUnlockedState] = useState<boolean>(() => isUnlocked());
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('bizcochuelos_theme');
     if (saved === 'light' || saved === 'dark') return saved;
@@ -70,11 +83,12 @@ function App() {
   // sobre la copia local: una copia local vieja rotada y subida borraría los
   // cambios de todos los demás.
   const adoptCloudState = async (cloudState: AppState) => {
-    // Sin cortocircuito — las dos migraciones tienen que correr siempre, no
+    // Sin cortocircuito — las tres migraciones tienen que correr siempre, no
     // solo hasta que una devuelva true.
     const cemeteryMigrated = applyCemeteryMigration(cloudState);
     const ledgerMigrated = applyLedgerMigration(cloudState);
-    const migrated = cemeteryMigrated || ledgerMigrated;
+    const catalogMigrated = applyCatalogMigration(cloudState);
+    const migrated = cemeteryMigrated || ledgerMigrated || catalogMigrated;
     const rotated = checkAndRotateWednesday(cloudState);
     const changed = migrated || rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday;
 
@@ -167,6 +181,37 @@ function App() {
 
   const handleReorderQueue = (newQueue: string[]) => runMutation(() => dbReorderQueue(newQueue));
 
+  // ── Administración ────────────────────────────────────────────────────────
+  //
+  // `isAdmin` decide a quién se le muestra la puerta; `unlocked`, quién ya
+  // pasó. Ver services/admin.ts: la primera no es una protección, la segunda
+  // sí (dentro de lo que da un PIN corto en una app sin servidor de auth).
+  const isAdmin = isAdminUser(state, currentUser);
+  const canAdmin = isAdmin && unlocked;
+
+  const requestUnlock = (intent: 'panel' | 'reorder' | 'change') => setPinIntent(intent);
+
+  const handlePinUnlocked = () => {
+    const intent = pinIntent;
+    setPinIntent(null);
+    // Cambiar el PIN no debería dejar la sesión bloqueada, pero tampoco es lo
+    // que abre la puerta: al terminar se vuelve al panel, que ya estaba abierto.
+    setUnlocked(true);
+    setUnlockedState(true);
+    if (intent === 'panel') setShowAdminPanel(true);
+  };
+
+  const handleSetPin = (hash: string) => runMutation(() => dbSetAdminPin(hash));
+
+  const handleAddCatalogItem = (name: string, precio: number) =>
+    runMutation(() => dbAddCatalogItem(name, precio));
+  const handleUpdateCatalogItem = (name: string, precio: number) =>
+    runMutation(() => dbUpdateCatalogItem(name, precio));
+  const handleRemoveCatalogItem = (name: string) =>
+    runMutation(() => dbRemoveCatalogItem(name));
+  const handleSetPresupuesto = (pesos: number) =>
+    runMutation(() => dbSetPresupuesto(pesos));
+
   const handleDeleteUser = async (userId: string, reason: string) => {
     const ok = await runMutation(() => dbDeleteUser(userId, reason));
     if (ok && currentUser === userId) handleLogout();
@@ -175,23 +220,28 @@ function App() {
   const activeUserObj = state.users.find(u => u.id === currentUser);
 
   // Compute order totals for the FAB modal
-  const totals = BIZCOCHO_TYPES.reduce((acc, type) => {
-    acc[type] = 0;
+  const totals = state.catalog.reduce((acc, item) => {
+    acc[item.name] = 0;
     return acc;
   }, {} as Record<BizcochoType, number>);
 
   state.users.forEach(user => {
-    BIZCOCHO_TYPES.forEach(type => {
+    state.catalog.forEach(({ name: type }) => {
       totals[type] += user.selections[type] || 0;
     });
   });
 
-  const activeTotals = BIZCOCHO_TYPES
-    .filter(type => totals[type] > 0)
-    .map(type => ({ type, count: totals[type] }))
+  const activeTotals = state.catalog
+    .filter(item => totals[item.name] > 0)
+    .map(item => ({ type: item.name, count: totals[item.name] }))
     .sort((a, b) => b.count - a.count);
 
   const grandTotal = activeTotals.reduce((s, { count }) => s + count, 0);
+
+  // Lo que va a salir el pedido, para quien tenga que ir a la panadería.
+  const grandPesos = state.catalog.reduce(
+    (sum, item) => sum + item.precio * (totals[item.name] || 0), 0,
+  );
 
   const currentBuyer = state.users.find(u => u.id === state.buyerQueue[0]);
   const onboarding = !!(activeUserObj && activeUserObj.needsOnboarding);
@@ -215,6 +265,7 @@ function App() {
       {activeUserObj && onboarding && (
         <WelcomeModal
           user={activeUserObj}
+          state={state}
           onComplete={selections => handleCompleteOnboarding(activeUserObj.id, selections)}
         />
       )}
@@ -228,6 +279,30 @@ function App() {
           ledger={ledger}
           currentUser={currentUser}
           onClose={() => setShowBalanceModal(false)}
+        />
+      )}
+
+      {/* ADMIN — panel de catálogo y presupuesto, detrás del PIN */}
+      {showAdminPanel && canAdmin && (
+        <AdminPanel
+          state={state}
+          onAddItem={handleAddCatalogItem}
+          onUpdateItem={handleUpdateCatalogItem}
+          onRemoveItem={handleRemoveCatalogItem}
+          onSetPresupuesto={handleSetPresupuesto}
+          onChangePin={() => requestUnlock('change')}
+          onClose={() => setShowAdminPanel(false)}
+        />
+      )}
+
+      {/* PIN — se abre cuando se intenta una acción bajo llave. Al cambiar el
+          PIN se fuerza el modo "crear" pasando pinHash null. */}
+      {pinIntent && (
+        <PinModal
+          pinHash={pinIntent === 'change' ? null : state.admin.pinHash}
+          onUnlock={handlePinUnlocked}
+          onCreate={handleSetPin}
+          onClose={() => setPinIntent(null)}
         />
       )}
 
@@ -301,7 +376,10 @@ function App() {
             {/* Footer total */}
             <div className="px-6 pt-2 pb-6 border-t border-gray-100 dark:border-white/10 flex items-center justify-between">
               <span className="text-xs font-extrabold text-carbon-dark dark:text-white uppercase tracking-wider">Total</span>
-              <span className="text-lg font-black text-apple-green">{grandTotal} bizcochos</span>
+              <div className="text-right">
+                <span className="block text-lg font-black text-apple-green leading-none">${grandPesos}</span>
+                <span className="block text-[11px] font-bold text-gray-400 mt-1">{grandTotal} unidades</span>
+              </div>
             </div>
           </div>
         </div>
@@ -321,6 +399,24 @@ function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Panel de administración — solo se le muestra a quien figura en
+                admin.userIds. No es la protección: esa es el PIN. */}
+            {isAdmin && (
+              <button
+                id="btn-admin-panel"
+                onClick={() => (canAdmin ? setShowAdminPanel(true) : requestUnlock('panel'))}
+                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
+                  canAdmin
+                    ? 'bg-apple-green/15 border-apple-green/30 text-apple-green'
+                    : 'bg-carbon-light dark:bg-white/10 border-gray-100 dark:border-white/10 text-gray-500 dark:text-gray-300 hover:text-carbon-dark dark:hover:text-white'
+                }`}
+                title="Panel de administración"
+                aria-label="Abrir el panel de administración"
+              >
+                <ShieldCheck className="w-4 h-4" />
+              </button>
+            )}
+
             {/* Mandamientos bizcochísticos */}
             <button
               onClick={() => setShowRulesModal(true)}
@@ -358,9 +454,19 @@ function App() {
 
       {/* MAIN */}
       <main className="flex-1 max-w-2xl w-full mx-auto px-4 pt-5 pb-28">
-        {activeTab === 'dashboard' && <Dashboard state={state} currentUser={currentUser} onReorderQueue={handleReorderQueue} />}
+        {activeTab === 'dashboard' && (
+          <Dashboard
+            state={state}
+            currentUser={currentUser}
+            onReorderQueue={handleReorderQueue}
+            isAdmin={isAdmin}
+            canReorder={canAdmin}
+            onRequestUnlock={() => requestUnlock('reorder')}
+          />
+        )}
         {activeTab === 'members' && (
           <Members
+            state={state}
             users={state.users}
             ledger={ledger}
             onAddUser={handleAddUser}

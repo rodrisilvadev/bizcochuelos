@@ -56,7 +56,7 @@ const Row: React.FC<{ row: LedgerRow; isYou: boolean }> = ({ row, isYou }) => (
         comió <span className="font-bold text-gray-500 dark:text-gray-400">{row.comio}</span>
         {' · '}
         puso <span className="font-bold text-gray-500 dark:text-gray-400">{row.puso}</span>
-        {' · '}
+        {' pts · '}
         {row.compras} compra{row.compras === 1 ? '' : 's'}
       </p>
       {/* Compras anteriores al inicio del libro. No se pueden sumar al balance
@@ -76,8 +76,9 @@ const Row: React.FC<{ row: LedgerRow; isYou: boolean }> = ({ row, isYou }) => (
 );
 
 // El Balance de Levadura: cuánto puso cada uno contra cuánto comió, medido en
-// bizcochos. Ver services/ledger.ts para la matemática y por qué se deriva del
-// historial en lugar de acumularse. Se abre desde el botón central del footer.
+// puntos (12 = el pedido de una persona por una semana). Ver services/ledger.ts
+// para la matemática y por qué se deriva del historial en lugar de acumularse.
+// Se abre desde el botón central del footer.
 export const BalanceLevadura: React.FC<BalanceLevaduraProps> = ({ ledger, currentUser, onClose }) => {
   const [showHelp, setShowHelp] = useState(false);
 
@@ -134,9 +135,16 @@ export const BalanceLevadura: React.FC<BalanceLevaduraProps> = ({ ledger, curren
           {showHelp && (
             <div className="mx-4 mt-4 rounded-2xl bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 px-4 py-3.5 space-y-2.5 animate-scale-up">
               <p className="text-[11px] text-gray-500 dark:text-gray-300 font-semibold leading-relaxed">
-                Se mide en <span className="font-extrabold text-carbon-dark dark:text-white">bizcochos</span>, no en plata ni en turnos.
+                Se mide en <span className="font-extrabold text-carbon-dark dark:text-white">puntos</span>, no en plata ni en turnos.
                 Cada uno debería haber <span className="font-extrabold text-carbon-dark dark:text-white">puesto</span> tantos como los que{' '}
                 <span className="font-extrabold text-carbon-dark dark:text-white">comió</span>. El balance es la resta.
+              </p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-300 font-semibold leading-relaxed">
+                Un punto es la doceava parte de lo que come una persona por semana: 12 puntos son
+                4 bizcochos comunes, o 3 de los que salen más caros. Se cuenta así y no por
+                unidades porque no todos valen lo mismo — llevarse 3 panes tortuga cuesta igual
+                que llevarse 4 bizcochos, y contar unidades le haría figurar menos consumo a
+                quien elige lo caro.
               </p>
               <p className="text-[11px] text-gray-500 dark:text-gray-300 font-semibold leading-relaxed">
                 Contar turnos sería injusto: comprar cuando son 8 cuesta el doble que cuando son 4. Por eso se cuenta el pedido entero que te tocó pagar.

@@ -1,26 +1,44 @@
 import React, { useMemo, useState } from 'react';
-import type { BizcochoSelections, BizcochoType, User } from '../types';
-import { SELECTIONS_PER_USER } from '../types';
+import type { AppState, BizcochoSelections, BizcochoType, User } from '../types';
+import { PUNTOS_POR_PERSONA } from '../types';
 import { createEmptySelections } from '../services/db';
+import {
+  puntosPorTipo,
+  puntosDeSeleccion,
+  puedeAgregar,
+  seleccionCompleta,
+  faltanteTexto,
+  pesosDeSeleccion,
+} from '../services/catalog';
 import { PastryPicker } from './PastryPicker';
 import { PartyPopper, Check, AlertCircle } from 'lucide-react';
 
 interface WelcomeModalProps {
   user: User;
+  state: AppState;
   onComplete: (selections: BizcochoSelections) => void;
 }
 
 const CONFETTI_COLORS = ['#8CE600', '#a8f000', '#7bca00', '#ffffff', '#fcd34d'];
 
 // Alta nueva: entra a la cola, come sin comprar esta vuelta, y recién ahora
-// (primer ingreso) elige sus 4 bizcochos. No se puede cerrar sin elegir.
-export const WelcomeModal: React.FC<WelcomeModalProps> = ({ user, onComplete }) => {
+// (primer ingreso) elige su pedido semanal. No se puede cerrar sin elegir.
+export const WelcomeModal: React.FC<WelcomeModalProps> = ({ user, state, onComplete }) => {
   const [step, setStep] = useState<'welcome' | 'picking'>('welcome');
-  const [sel, setSel] = useState<BizcochoSelections>(() => createEmptySelections());
+  const [sel, setSel] = useState<BizcochoSelections>(() => createEmptySelections(state.catalog));
 
-  const total = Object.values(sel).reduce((s, v) => s + v, 0);
-  const incSel = (t: BizcochoType) => { if (total < SELECTIONS_PER_USER) setSel(p => ({ ...p, [t]: p[t] + 1 })); };
-  const decSel = (t: BizcochoType) => { if (sel[t] > 0) setSel(p => ({ ...p, [t]: p[t] - 1 })); };
+  const puntos = useMemo(() => puntosPorTipo(state), [state]);
+  const usados = puntosDeSeleccion(sel, puntos);
+  const completa = seleccionCompleta(sel, puntos);
+  const faltante = faltanteTexto(sel, puntos);
+  const pesos = pesosDeSeleccion(sel, state.catalog);
+
+  const incSel = (t: BizcochoType) => {
+    if (puedeAgregar(t, usados, puntos)) setSel(p => ({ ...p, [t]: (p[t] || 0) + 1 }));
+  };
+  const decSel = (t: BizcochoType) => {
+    if ((sel[t] || 0) > 0) setSel(p => ({ ...p, [t]: p[t] - 1 }));
+  };
 
   const confetti = useMemo(() => Array.from({ length: 32 }, (_, i) => ({
     id: i,
@@ -78,36 +96,46 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({ user, onComplete }) 
           ) : (
             <>
               <h2 className="text-lg font-extrabold text-carbon-dark dark:text-white tracking-tight">
-                Elegí tus {SELECTIONS_PER_USER} bizcochos
+                Armá tu pedido semanal
               </h2>
               <p className="text-[11px] text-gray-400 font-semibold mt-1 mb-4">
-                Esta va a ser tu elección semanal por defecto. Después la podés cambiar desde Integrantes.
+                Tenés {PUNTOS_POR_PERSONA} puntos por semana — 4 bizcochos comunes, o 3 de los más caros.
+                Después lo podés cambiar desde Integrantes.
               </p>
 
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-extrabold text-carbon-dark dark:text-white">Tu selección:</span>
+                <span className="text-xs font-extrabold text-carbon-dark dark:text-white">
+                  Tu selección: <span className="text-gray-400 font-bold">${pesos}</span>
+                </span>
                 <span className={`text-xs font-black px-2.5 py-1 rounded-full transition-colors ${
-                  total === SELECTIONS_PER_USER
+                  completa
                     ? 'bg-apple-green/10 text-apple-green border border-apple-green/20'
                     : 'bg-gray-100 dark:bg-white/10 text-gray-400'
                 }`}>
-                  {total} / {SELECTIONS_PER_USER}
+                  {usados} / {PUNTOS_POR_PERSONA} pts
                 </span>
               </div>
 
-              <PastryPicker selections={sel} total={total} max={SELECTIONS_PER_USER} onInc={incSel} onDec={decSel} />
+              <PastryPicker
+                catalog={state.catalog}
+                presupuestoPesos={state.presupuestoPesos}
+                selections={sel}
+                usados={usados}
+                onInc={incSel}
+                onDec={decSel}
+              />
 
-              {total !== SELECTIONS_PER_USER && (
+              {faltante && (
                 <div className="flex items-center justify-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 font-bold mt-3">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  <span>Elegí {SELECTIONS_PER_USER - total} más para continuar.</span>
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{faltante}</span>
                 </div>
               )}
 
               <button
                 id="btn-welcome-save"
                 onClick={() => onComplete(sel)}
-                disabled={total !== SELECTIONS_PER_USER}
+                disabled={!completa}
                 className="w-full mt-5 py-3.5 bg-apple-green hover:bg-apple-green-hover disabled:opacity-40 disabled:cursor-not-allowed text-carbon-dark font-extrabold rounded-2xl transition-all shadow-sm text-sm cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
               >
                 <Check className="w-4 h-4" /> Listo, empezar

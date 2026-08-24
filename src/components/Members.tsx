@@ -1,6 +1,14 @@
-import React, { useState } from 'react';
-import type { User, BizcochoSelections, BizcochoType, LedgerRow } from '../types';
-import { BIZCOCHO_TYPES, SELECTIONS_PER_USER } from '../types';
+import React, { useMemo, useState } from 'react';
+import type { AppState, User, BizcochoSelections, BizcochoType, LedgerRow } from '../types';
+import { PUNTOS_POR_PERSONA } from '../types';
+import {
+  puntosPorTipo,
+  puntosDeSeleccion,
+  puedeAgregar,
+  seleccionCompleta,
+  faltanteTexto,
+  pesosDeSeleccion,
+} from '../services/catalog';
 import { PastryPicker } from './PastryPicker';
 import { EmptyState } from './EmptyState';
 import { TombstoneIcon } from './TombstoneIcon';
@@ -20,6 +28,7 @@ import {
 } from 'lucide-react';
 
 interface MembersProps {
+  state: AppState;
   users: User[];
   ledger: LedgerRow[];
   onAddUser: (name: string) => void;
@@ -36,6 +45,7 @@ const balancePillTone = (balance: number): string => {
 };
 
 export const Members: React.FC<MembersProps> = ({
+  state,
   users,
   ledger,
   onAddUser,
@@ -49,7 +59,11 @@ export const Members: React.FC<MembersProps> = ({
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [deathReason, setDeathReason] = useState('');
 
-  const sumOf = (sel: BizcochoSelections) => Object.values(sel).reduce((s, v) => s + v, 0);
+  // Cuánto vale cada tipo hoy. Se recalcula solo cuando cambia el catálogo o
+  // el presupuesto, no en cada tecla del stepper.
+  const puntos = useMemo(() => puntosPorTipo(state), [state]);
+
+  const sumOf = (sel: BizcochoSelections) => Object.values(sel).reduce((s, v) => s + (v || 0), 0);
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,14 +79,22 @@ export const Members: React.FC<MembersProps> = ({
     setTempSel({ ...user.selections });
   };
   const cancelEdit = () => { setEditingUserId(null); setTempSel(null); };
+  const tempPuntos = tempSel ? puntosDeSeleccion(tempSel, puntos) : 0;
+  const tempCompleta = tempSel ? seleccionCompleta(tempSel, puntos) : false;
+  const tempFaltante = tempSel ? faltanteTexto(tempSel, puntos) : null;
+  const tempPesos = tempSel ? pesosDeSeleccion(tempSel, state.catalog) : 0;
+
   const saveEdit = (userId: string) => {
-    if (!tempSel || sumOf(tempSel) !== SELECTIONS_PER_USER) return;
+    if (!tempSel || !tempCompleta) return;
     onUpdateUserSelections(userId, tempSel);
     cancelEdit();
   };
-  const tempTotal = tempSel ? sumOf(tempSel) : 0;
-  const incTemp = (t: BizcochoType) => { if (tempSel && tempTotal < SELECTIONS_PER_USER) setTempSel(p => ({ ...p!, [t]: p![t] + 1 })); };
-  const decTemp = (t: BizcochoType) => { if (tempSel && tempSel[t] > 0) setTempSel(p => ({ ...p!, [t]: p![t] - 1 })); };
+  const incTemp = (t: BizcochoType) => {
+    if (tempSel && puedeAgregar(t, tempPuntos, puntos)) setTempSel(p => ({ ...p!, [t]: (p![t] || 0) + 1 }));
+  };
+  const decTemp = (t: BizcochoType) => {
+    if (tempSel && (tempSel[t] || 0) > 0) setTempSel(p => ({ ...p!, [t]: p![t] - 1 }));
+  };
 
   // ── Baja (con motivo, para el Cementerio Harinoso) ──
   const openDeleteModal = (user: User) => { setDeletingUser(user); setDeathReason(''); };
@@ -134,7 +156,7 @@ export const Members: React.FC<MembersProps> = ({
 
           {/* Hint */}
           <p className="text-[10px] text-gray-400 dark:text-amber-300/80 font-semibold bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl px-3 py-2">
-            ⓘ Entra como 2° en la cola — no paga el próximo miércoles, le toca el siguiente. Va a elegir sus {SELECTIONS_PER_USER} bizcochos la primera vez que ingrese a la app.
+            ⓘ Entra como 2° en la cola — no paga el próximo miércoles, le toca el siguiente. Va a armar su pedido de {PUNTOS_POR_PERSONA} puntos la primera vez que ingrese a la app.
           </p>
 
           <button
@@ -157,9 +179,9 @@ export const Members: React.FC<MembersProps> = ({
             const isEditing = editingUserId === user.id;
             const currentTotal = sumOf(user.selections);
             const isMissing = currentTotal === 0;
-            const activeSel = BIZCOCHO_TYPES
-              .filter(t => user.selections[t] > 0)
-              .map(t => ({ type: t, count: user.selections[t] }));
+            const activeSel = state.catalog
+              .filter(item => (user.selections[item.name] || 0) > 0)
+              .map(item => ({ type: item.name, count: user.selections[item.name] }));
             const colorClass = getAvatarColor(user.id);
             const row = ledger.find(r => r.id === user.id);
 
@@ -202,11 +224,11 @@ export const Members: React.FC<MembersProps> = ({
                           <ShoppingBag className="w-3 h-3 text-apple-green" />
                           <span>{user.comprasCount ?? 0} compras</span>
                         </span>
-                        {/* Balance de Levadura: puso − comió, en bizcochos. El
-                            detalle y la explicación viven en la pestaña Compra. */}
+                        {/* Balance de Levadura: puso − comió, en puntos (12 =
+                            una semana). El detalle vive en el modal de Balance. */}
                         {row && row.semanas > 0 && (
                           <span
-                            title={`Balance de Levadura: comió ${row.comio}, puso ${row.puso}`}
+                            title={`Balance de Levadura: comió ${row.comio} puntos, puso ${row.puso}`}
                             className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-1 rounded-lg border tabular-nums ${balancePillTone(row.balance)}`}
                           >
                             <Scale className="w-3 h-3" />
@@ -271,27 +293,35 @@ export const Members: React.FC<MembersProps> = ({
                 {/* EDITING STATE */}
                 {isEditing && tempSel && (
                   <div className="border-t border-gray-100 dark:border-white/10 px-5 py-4 space-y-4 animate-scale-up bg-carbon-light/30 dark:bg-white/5">
-                    {/* Progress bar */}
+                    {/* Presupuesto semanal, en puntos */}
                     <div className="flex items-center gap-3">
                       <div className="flex-1 bg-gray-100 dark:bg-white/10 rounded-full h-1.5 overflow-hidden">
                         <div
                           className="h-full bg-apple-green rounded-full transition-all duration-400"
-                          style={{ width: `${(tempTotal / SELECTIONS_PER_USER) * 100}%` }}
+                          style={{ width: `${Math.min(100, (tempPuntos / PUNTOS_POR_PERSONA) * 100)}%` }}
                         />
                       </div>
-                      <span className={`text-xs font-extrabold ${tempTotal === SELECTIONS_PER_USER ? 'text-apple-green' : 'text-gray-400'}`}>
-                        {tempTotal}/{SELECTIONS_PER_USER}
+                      <span className="text-[10px] font-bold text-gray-400 tabular-nums">${tempPesos}</span>
+                      <span className={`text-xs font-extrabold tabular-nums ${tempCompleta ? 'text-apple-green' : 'text-gray-400'}`}>
+                        {tempPuntos}/{PUNTOS_POR_PERSONA}
                       </span>
                     </div>
 
                     {/* Steppers */}
-                    <PastryPicker selections={tempSel} total={tempTotal} max={SELECTIONS_PER_USER} onInc={incTemp} onDec={decTemp} />
+                    <PastryPicker
+                      catalog={state.catalog}
+                      presupuestoPesos={state.presupuestoPesos}
+                      selections={tempSel}
+                      usados={tempPuntos}
+                      onInc={incTemp}
+                      onDec={decTemp}
+                    />
 
                     {/* Validation */}
-                    {tempTotal !== SELECTIONS_PER_USER && (
+                    {tempFaltante && (
                       <div className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 font-bold">
-                        <AlertCircle className="w-3.5 h-3.5" />
-                        <span>Asigná {SELECTIONS_PER_USER - tempTotal} bizcocho{SELECTIONS_PER_USER - tempTotal !== 1 ? 's' : ''} más para guardar.</span>
+                        <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>{tempFaltante}</span>
                       </div>
                     )}
 
@@ -300,7 +330,7 @@ export const Members: React.FC<MembersProps> = ({
                       <button
                         id={`btn-save-member-${user.id}`}
                         onClick={() => saveEdit(user.id)}
-                        disabled={tempTotal !== SELECTIONS_PER_USER}
+                        disabled={!tempCompleta}
                         className="flex-1 py-3 bg-apple-green hover:bg-apple-green-hover disabled:opacity-40 disabled:cursor-not-allowed text-carbon-dark font-extrabold rounded-2xl transition-all text-sm flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Check className="w-4 h-4" /> Guardar

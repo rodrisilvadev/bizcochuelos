@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import type { AppState, BizcochoType } from '../types';
-import { BIZCOCHO_TYPES } from '../types';
 import {
   ShoppingBag,
   ArrowRight,
@@ -13,20 +12,36 @@ import {
   Users,
   X,
   ArrowUpDown,
+  Lock,
 } from 'lucide-react';
 
 interface DashboardProps {
   state: AppState;
   currentUser: string | null;
   onReorderQueue: (newQueue: string[]) => void;
+  // Reordenar la cola es una de las dos acciones bajo llave (la otra es tocar
+  // el catálogo). Son dos cosas distintas: `isAdmin` es a quién le aparece el
+  // botón, `canReorder` es quién ya puso el PIN. Al resto del grupo ni se le
+  // muestra — ofrecerle la puerta y después no dejarlo pasar aunque acierte el
+  // PIN sería un callejón sin salida.
+  isAdmin: boolean;
+  canReorder: boolean;
+  onRequestUnlock: () => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReorderQueue }) => {
+export const Dashboard: React.FC<DashboardProps> = ({
+  state, currentUser, onReorderQueue, isAdmin, canReorder, onRequestUnlock,
+}) => {
   const { users, buyerQueue, lastReviewer, lastReviewTimestamp } = state;
 
   const [showSchedule, setShowSchedule] = useState(false);
   const [expandedType, setExpandedType] = useState<BizcochoType | null>(null);
   const [reordering, setReordering] = useState(false);
+
+  // El modo reordenar solo cuenta mientras la puerta siga abierta: si el
+  // desbloqueo se pierde (otra pestaña, sessionStorage limpio) las flechas
+  // desaparecen solas en vez de quedar ofreciendo algo que ya no se puede.
+  const isReordering = reordering && canReorder;
 
   const moveInQueue = (index: number, direction: -1 | 1) => {
     const target = index + direction;
@@ -40,23 +55,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReor
   const nextBuyer = users.find(u => u.id === buyerQueue[1]);
 
   // Aggregate totals
-  const totals = BIZCOCHO_TYPES.reduce((acc, type) => {
-    acc[type] = 0;
+  const totals = state.catalog.reduce((acc, item) => {
+    acc[item.name] = 0;
     return acc;
   }, {} as Record<BizcochoType, number>);
 
   users.forEach(user => {
-    BIZCOCHO_TYPES.forEach(type => {
+    state.catalog.forEach(({ name: type }) => {
       totals[type] += user.selections[type] || 0;
     });
   });
 
-  const activeTotals = BIZCOCHO_TYPES
-    .filter(type => totals[type] > 0)
-    .map(type => ({ type, count: totals[type] }))
+  const activeTotals = state.catalog
+    .filter(item => totals[item.name] > 0)
+    .map(item => ({ type: item.name, count: totals[item.name] }))
     .sort((a, b) => b.count - a.count);
 
   const grandTotal = Object.values(totals).reduce((s, c) => s + c, 0);
+
+  // Lo que va a salir el pedido. Ahora que no todo cuesta lo mismo, contar
+  // unidades ya no le dice a quien compra cuánta plata llevar.
+  const grandPesos = state.catalog.reduce((sum, item) => sum + item.precio * (totals[item.name] || 0), 0);
 
   // ── Wednesday date helpers ──
   const getUpcomingWednesday = (offsetWeeks = 0): Date => {
@@ -260,7 +279,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReor
               {/* Receipt total footer */}
               <div className="px-5 py-4 flex items-center justify-between bg-carbon-light/40 dark:bg-white/5">
                 <span className="text-xs font-extrabold text-carbon-dark dark:text-white uppercase tracking-wider">Total</span>
-                <span className="text-base font-black text-apple-green">{grandTotal} unidades</span>
+                <div className="text-right">
+                  <span className="block text-base font-black text-apple-green leading-none">${grandPesos}</span>
+                  <span className="block text-[10px] font-bold text-gray-400 mt-1">{grandTotal} unidades</span>
+                </div>
               </div>
             </div>
           </div>
@@ -301,18 +323,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReor
                 <span className="text-base font-extrabold text-carbon-dark dark:text-white">¿Cuándo me toca?</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setReordering(r => !r)}
-                  title="Reordenar turnos (vacaciones, cambios)"
-                  className={`flex items-center gap-1 px-2.5 h-8 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
-                    reordering
-                      ? 'bg-apple-green/15 text-apple-green border-apple-green/25'
-                      : 'bg-carbon-light dark:bg-white/5 text-gray-400 border-gray-100 dark:border-white/10 hover:text-carbon-dark dark:hover:text-white'
-                  }`}
-                >
-                  <ArrowUpDown className="w-3.5 h-3.5" />
-                  {reordering ? 'Listo' : 'Editar'}
-                </button>
+                {isAdmin && (
+                  <button
+                    id="btn-toggle-reorder"
+                    onClick={() => (canReorder ? setReordering(r => !r) : onRequestUnlock())}
+                    title={canReorder ? 'Reordenar turnos (vacaciones, cambios)' : 'Reordenar turnos — hace falta el PIN'}
+                    className={`flex items-center gap-1 px-2.5 h-8 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
+                      isReordering
+                        ? 'bg-apple-green/15 text-apple-green border-apple-green/25'
+                        : 'bg-carbon-light dark:bg-white/5 text-gray-400 border-gray-100 dark:border-white/10 hover:text-carbon-dark dark:hover:text-white'
+                    }`}
+                  >
+                    {canReorder ? <ArrowUpDown className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                    {isReordering ? 'Listo' : 'Editar'}
+                  </button>
+                )}
                 <button
                   onClick={() => setShowSchedule(false)}
                   className="w-8 h-8 rounded-xl bg-carbon-light dark:bg-white/5 border border-gray-100 dark:border-white/10 flex items-center justify-center text-gray-400 hover:text-carbon-dark dark:hover:text-white transition-all cursor-pointer"
@@ -322,7 +347,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReor
               </div>
             </div>
 
-            {reordering && (
+            {isReordering && (
               <div className="px-6 pt-3 -mb-1">
                 <p className="text-[10px] text-gray-400 dark:text-amber-300/80 font-semibold bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl px-3 py-2">
                   ⓘ Usá las flechas para saltear a alguien de vacaciones o cambiar un turno con otro integrante.
@@ -362,7 +387,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ state, currentUser, onReor
                           <span className="text-[10px] text-gray-400 font-semibold capitalize">{wednesdayFull(index)}</span>
                         </div>
                       </div>
-                      {reordering ? (
+                      {isReordering ? (
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             onClick={() => moveInQueue(index, -1)}

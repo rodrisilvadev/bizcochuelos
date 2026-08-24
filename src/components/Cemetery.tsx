@@ -14,7 +14,7 @@ interface CemeteryProps {
 const epitaphBalance = (balance: number): { text: string; tone: string } => {
   if (balance < 0) {
     return {
-      text: `Se fue debiendo ${Math.abs(balance)} bizcochos`,
+      text: `Se fue debiendo ${Math.abs(balance)} puntos`,
       tone: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/25',
     };
   }

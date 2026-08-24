@@ -5,11 +5,64 @@ App para gestionar la compra rotativa de bizcochos de la oficina, todos los mié
 ## Qué hace
 
 - **Turnos**: cada miércoles el turno pasa automáticamente a la siguiente persona en la cola (`buyerQueue`).
-- **Elecciones**: cada integrante elige 4 bizcochos (de una lista fija de 12 tipos) que se usan para armar el pedido de la panadería.
+- **Elecciones**: cada integrante arma su pedido semanal dentro de un presupuesto de 12 **puntos** (ver abajo), eligiendo del catálogo del grupo.
 - **Dashboard**: muestra quién compra esta semana, quién sigue, y el desglose del pedido total con quién come cada tipo.
 - **Integrantes**: alta, baja y edición de las elecciones de cada persona.
 - **Historial**: registro de los últimos pedidos (fecha, comprador, ítems) — se completa solo cada miércoles que pasa.
 - **Reglas del grupo**: modal "Los Mandamientos Bizcochísticos", accesible desde el header.
+- **Administración**: el catálogo (qué se puede pedir y a cuánto) y el orden de la cola solo los toca quien figura en `admin.userIds`, y con PIN.
+
+## Puntos: por qué no se cuentan unidades
+
+Mientras todos los bizcochos costaron lo mismo, "4 bizcochos por persona" alcanzaba
+como presupuesto. Con el **pan tortuga integral** ($30 contra $25) deja de alcanzar:
+donde entran 4 bizcochos comunes entran 3 tortugas, y contar unidades trataría esas
+dos elecciones como distintas cuando cuestan lo mismo.
+
+La unidad es entonces el **punto**: la fracción del presupuesto semanal que ocupa
+cada cosa. Cada persona tiene 12 puntos por semana, y cada ítem cuesta
+`round(precio × 12 / presupuesto)`. Con el presupuesto en $100:
+
+| Ítem | Precio | Puntos | Entran por semana |
+|---|---|---|---|
+| Bizcocho común | $25 | 3 | 4 |
+| Pan tortuga integral | $30 | 4 | 3 |
+
+Los puntos son **relativos** al presupuesto, no absolutos en pesos. Eso importa
+porque el Balance de Levadura es un libro contable histórico: si mañana aumenta la
+panadería y se suben precios y presupuesto juntos, los puntos no se mueven y los
+balances viejos siguen significando lo mismo. Un libro en pesos se distorsionaría
+con cada aumento.
+
+Una selección está **completa** cuando ya no entra nada más, no cuando llega justo
+a 12: 2 tortugas + 1 bizcocho gastan 11 puntos y sobra 1, que no alcanza para nada.
+Exigir el presupuesto exacto dejaría esa combinación imposible de guardar.
+
+## Administración (catálogo, cola y PIN)
+
+Dos cosas no las decide cualquiera: **qué se puede pedir** y **en qué orden se
+compra**. Todo lo demás sigue abierto para el grupo.
+
+- `admin.userIds` (por defecto `['rodri']`) decide **a quién se le muestra la
+  puerta** — el escudo del header y el botón "Editar" de la cola. No es seguridad:
+  el login es elegir tu nombre de una lista, así que cualquiera podría entrar como
+  cualquiera. Sirve para que el panel no le aparezca a quien no tiene nada que hacer ahí.
+- `admin.pinHash` decide **quién pasa**. Es la única credencial real. La primera vez
+  que un administrador abre el panel, la app le pide crear el PIN; se guarda hasheado
+  (SHA-256 con sal fija) y el desbloqueo dura lo que dure la pestaña (`sessionStorage`).
+
+**Alcance honesto**: un PIN corto hasheado se rompe por fuerza bruta en segundos, y
+el estado compartido lo puede leer cualquiera del grupo. Esto frena el toqueteo
+casual y los accidentes, no a alguien que se lo proponga. Para lo segundo haría falta
+autenticación de verdad en el servidor, que hoy no existe (`api/state.js` es un proxy
+sin usuarios).
+
+Desde el panel se puede: agregar un ítem (nombre + precio, con vista previa de cuántos
+entran por semana), cambiarle el precio, sacarlo del catálogo, y ajustar el presupuesto
+semanal. **El nombre no se puede cambiar**: es la clave con la que quedaron guardadas
+las elecciones de cada uno y los pedidos del historial. Sacar un ítem lo saca también
+de las selecciones de todos — el historial no se toca, así que los pedidos viejos
+siguen mostrando lo que realmente se compró ese día.
 
 ## Los Mandamientos Bizcochísticos
 
@@ -24,7 +77,7 @@ App para gestionar la compra rotativa de bizcochos de la oficina, todos los mié
 
 Desde el rediseño de julio 2026, agregar un integrante en **Integrantes → Agregar** solo pide el nombre. No se le asignan bizcochos en ese momento.
 
-La persona queda marcada con `needsOnboarding: true` y entra 2° en la cola (no paga la próxima, le toca la siguiente — cumple el Mandamiento 1). La primera vez que esa persona selecciona su nombre en el login, ve un modal de bienvenida (con confetti) y ahí elige sus 4 bizcochos; recién ahí puede navegar el resto de la app. Este flujo **no afecta a integrantes que ya existían** antes del cambio — solo aplica a altas nuevas.
+La persona queda marcada con `needsOnboarding: true` y entra 2° en la cola (no paga la próxima, le toca la siguiente — cumple el Mandamiento 1). La primera vez que esa persona selecciona su nombre en el login, ve un modal de bienvenida (con confetti) y ahí arma su pedido de 12 puntos; recién ahí puede navegar el resto de la app. Este flujo **no afecta a integrantes que ya existían** antes del cambio — solo aplica a altas nuevas.
 
 ## Balance de Levadura ("la verdad dura")
 
@@ -96,6 +149,8 @@ npm run dev   # levanta server.js (puerto 3001) + vite (puerto 5173) juntos
 - `App.tsx` — layout, tabs, estado global, polling, cálculo del ledger.
 - `services/db.ts` — toda la lógica de dominio (rotación de miércoles, altas, historial, migraciones, sync con la nube).
 - `services/ledger.ts` — el Balance de Levadura: matemática pura, derivada del historial.
+- `services/catalog.ts` — la aritmética de puntos: precio → puntos, presupuesto, validación de una selección.
+- `services/admin.ts` — hash y verificación del PIN, y quién ve la puerta.
 - `components/Dashboard.tsx` — turno activo, pedido de la semana, gestión manual de la cola.
 - `components/BalanceLevadura.tsx` — tabla de balances con su explicación.
 - `components/Members.tsx` — alta/baja/edición de integrantes.
@@ -104,5 +159,7 @@ npm run dev   # levanta server.js (puerto 3001) + vite (puerto 5173) juntos
 - `components/LoginModal.tsx` — selección de quién sos al entrar.
 - `components/WelcomeModal.tsx` — onboarding de altas nuevas.
 - `components/RulesModal.tsx` — Los Mandamientos Bizcochísticos.
-- `components/PastryPicker.tsx` — selector de 4 bizcochos, compartido entre Members y WelcomeModal.
+- `components/PastryPicker.tsx` — selector del pedido semanal por puntos, compartido entre Members y WelcomeModal.
+- `components/AdminPanel.tsx` — catálogo y presupuesto (detrás del PIN).
+- `components/PinModal.tsx` — la puerta: crea o pide el PIN de administración.
 - `components/SyncErrorToasts.tsx` — avisos cuando falla el guardado a la nube.
