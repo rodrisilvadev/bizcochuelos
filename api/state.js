@@ -30,11 +30,54 @@ const GIST_ID = '551e62ee777a3ad6acc9e88504bb29b1';
 const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
 const STATE_FILE = 'state.json';
 
+// El Gist es público, así que su contenido se puede leer sin credencial por el
+// CDN de GitHub. Es la red de contención para cuando el token no sirve: con el
+// token vencido, la app se quedaba sin leer NI escribir, cada teléfono mostraba
+// su última copia local como si estuviera al día, y la cola de turnos quedó
+// congelada una semana sin que nadie viera un error (ocurrió el 2026-09-29).
+// Leyendo igual, la rotación de los miércoles se calcula en el cliente y la
+// pantalla sigue mostrando a quien le toca de verdad; lo único que se pierde
+// mientras el token esté roto es guardar.
+const GIST_RAW_URL = `https://gist.githubusercontent.com/rodrisilvadev/${GIST_ID}/raw/${STATE_FILE}`;
+
 const ghHeaders = token => ({
   ...(token ? { Authorization: `Bearer ${token}` } : {}),
   'User-Agent': 'bizcochuelos-app',
   Accept: 'application/vnd.github+json',
 });
+
+const parseState = (text, origen) => {
+  try {
+    const state = JSON.parse(text);
+    if (!state || typeof state !== 'object') return { ok: true, state: null };
+    // Estados guardados antes de que existiera el versionado arrancan en 0.
+    if (typeof state.rev !== 'number') state.rev = 0;
+    return { ok: true, state };
+  } catch (err) {
+    return { ok: false, error: `Estado guardado ilegible (${origen}): ${String(err)}` };
+  }
+};
+
+// Lectura sin credencial contra el CDN del Gist público. Solo se usa como
+// respaldo: el contenido del CDN puede ir unos segundos atrás del real, y eso
+// es aceptable cuando la alternativa es no leer nada.
+const readPublicState = async () => {
+  let r;
+  try {
+    r = await fetch(`${GIST_RAW_URL}?t=${Date.now()}`, {
+      headers: { 'User-Agent': 'bizcochuelos-app' },
+      cache: 'no-store',
+    });
+  } catch (err) {
+    return { ok: false, error: `No se pudo contactar al Gist público: ${String(err)}` };
+  }
+  if (!r.ok) {
+    return { ok: false, error: `El Gist público respondió ${r.status}` };
+  }
+  const text = await r.text().catch(() => '');
+  if (!text) return { ok: true, state: null };
+  return parseState(text, 'Gist público');
+};
 
 // Lee el estado actual del Gist.
 // Devuelve { ok: true, state } (state es null si el Gist todavía no tiene
@@ -44,6 +87,11 @@ const ghHeaders = token => ({
 // Antes esta función devolvía null en los dos casos, y el cliente entendía
 // "la nube está vacía" ante cualquier hipo de red o token vencido — que es
 // justo la situación en la que no hay que dejar escribir nada.
+//
+// `degraded: true` significa "esto lo pudimos leer, pero por la puerta de
+// atrás": el token no sirve y por lo tanto NO se puede escribir. Quien llama
+// tiene que distinguirlo de una lectura sana, porque intentar un guardado
+// contra una `rev` leída así es escribir a ciegas.
 const readState = async token => {
   let r;
   try {
@@ -52,12 +100,17 @@ const readState = async token => {
       cache: 'no-store',
     });
   } catch (err) {
+    const fallback = await readPublicState();
+    if (fallback.ok) return { ...fallback, degraded: true };
     return { ok: false, error: `No se pudo contactar a GitHub: ${String(err)}` };
   }
 
   if (!r.ok) {
     const text = await r.text().catch(() => '');
-    return { ok: false, error: `GitHub respondió ${r.status}: ${text.slice(0, 300)}` };
+    const motivo = `GitHub respondió ${r.status}: ${text.slice(0, 300)}`;
+    const fallback = await readPublicState();
+    if (fallback.ok) return { ...fallback, degraded: true, error: motivo };
+    return { ok: false, error: motivo };
   }
 
   let gist;
@@ -75,15 +128,7 @@ const readState = async token => {
   }
   if (!file || !file.content) return { ok: true, state: null };
 
-  try {
-    const state = JSON.parse(file.content);
-    if (!state || typeof state !== 'object') return { ok: true, state: null };
-    // Estados guardados antes de que existiera el versionado arrancan en 0.
-    if (typeof state.rev !== 'number') state.rev = 0;
-    return { ok: true, state };
-  } catch (err) {
-    return { ok: false, error: `Estado guardado ilegible: ${String(err)}` };
-  }
+  return parseState(file.content, 'Gist');
 };
 
 // Rechaza cualquier cosa que no tenga la forma mínima de un AppState. Es la
@@ -108,6 +153,14 @@ export default async function handler(req, res) {
       // hay nada" de "el backend está caído", porque en el segundo caso no
       // puede dar por bueno su estado local ni escribir encima.
       return res.status(502).json({ ok: false, error: result.error });
+    }
+    // Se leyó, pero por el Gist público: el token no sirve y no se va a poder
+    // guardar nada. Va en una cabecera y no dentro del estado, porque el
+    // cuerpo de esta respuesta ES el AppState y meterle campos de transporte
+    // lo contaminaría (el cliente lo normaliza y lo vuelve a subir tal cual).
+    if (result.degraded) {
+      res.setHeader('X-Bizcochuelos-Degraded', 'read-only');
+      console.error('[bizcochuelos] modo solo-lectura:', result.error || 'token inválido');
     }
     return res.status(200).json(result.state);
   }
@@ -147,6 +200,17 @@ export default async function handler(req, res) {
     if (!current.ok) {
       // No sabemos contra qué estamos escribiendo: no escribimos.
       return res.status(502).json({ ok: false, error: current.error });
+    }
+    // Lo leído vino del Gist público porque el token falló. El compare-and-set
+    // necesita la `rev` autoritativa, y el PATCH va a fallar igual: se corta
+    // acá con un motivo que se entienda, en vez de un 502 genérico de GitHub.
+    if (current.degraded) {
+      res.setHeader('X-Bizcochuelos-Degraded', 'read-only');
+      return res.status(503).json({
+        ok: false,
+        readOnly: true,
+        error: 'El servidor no puede guardar: hay que renovar GIST_TOKEN en Vercel.',
+      });
     }
 
     const currentRev = current.state ? current.state.rev : null;

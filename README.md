@@ -135,6 +135,51 @@ El estado lleva ahora un contador `rev` que **asigna solo el servidor**. Reglas:
 
 La lectura y la escritura contra el Gist no son atómicas entre sí (la API de Gists no tiene escritura condicional), así que la ventana de carrera no es cero — pero pasa de ser todo el rato que alguien tiene el formulario abierto a ser el round-trip del servidor a GitHub.
 
+### Cuando el token del Gist se vence (modo solo lectura)
+
+El 2026-09-29 el `GIST_TOKEN` de Vercel dejó de ser válido y GitHub empezó a
+responder `401 Bad credentials`. `/api/state` devolvía `502` tanto al leer como
+al guardar, y el fallo de lectura se descartaba en silencio en `App.tsx`
+(`if (!read.ok) return;`). Resultado: cada teléfono siguió mostrando su copia
+local del 29/09 como si estuviera al día y **la cola de turnos quedó congelada
+una semana** — le tocó a Fabri el 30/09 y la app seguía marcando a Fabri el
+06/10. Nadie vio un error porque no había ninguno que ver.
+
+Dos cambios para que no se repita:
+
+- **Leer no depende del token.** El Gist es público, así que si la lectura
+  autenticada falla, `api/state.js` reintenta contra el CDN
+  (`gist.githubusercontent.com/.../raw/state.json`) y marca la respuesta con la
+  cabecera `X-Bizcochuelos-Degraded: read-only`. La rotación de los miércoles se
+  calcula en el cliente, así que con la lectura viva **en pantalla le toca a
+  quien de verdad le toca**, aunque no se pueda asentar en el Gist. Guardar sí
+  necesita el token: el `POST` corta con `503` y un motivo que se entiende
+  ("hay que renovar GIST_TOKEN en Vercel") en vez de un `502` de GitHub.
+- **Un backend caído se ve.** Los fallos de lectura (en el arranque y en el
+  polling) ahora avisan por toast, con un enfriamiento de 5 minutos para no
+  tapar la pantalla cada 15 s.
+
+**Cómo se arregla de raíz** (es lo único que no puede hacer el código): generar
+un token nuevo en GitHub → Settings → Developer settings → Tokens, con permiso
+**solo de `gist`**, y pegarlo en Vercel → Settings → Environment Variables →
+`GIST_TOKEN`, y redeployar. En cuanto vuelva a escribir, la rotación atrasada se
+asienta sola: `checkAndRotateWednesday` avanza todos los miércoles que falten,
+de uno en uno, registrando el historial de cada uno.
+
+Para comprobar si está vivo: `curl -s https://bizcochuelos.vercel.app/api/state`
+— un `{"ok":false,...}` en vez del estado es el síntoma.
+
+### La fecha del turno es local, no UTC
+
+`checkAndRotateWednesday` comparó durante mucho tiempo contra
+`new Date().toISOString()`, que es **UTC**. En Uruguay (UTC-3) el día cambia ahí
+a las 21:00, así que quien abría la app un miércoles de noche adelantaba el turno
+tres horas antes de que terminara el día de compra: el Dashboard decía
+"miércoles 16" (que usa `getDay()`, local) y la cola ya mostraba al comprador del
+23. Quedó registrado en el historial del Gist: la rotación del 16/09 se escribió
+a las `2026-09-17T00:00:44Z`, o sea el miércoles 21:00 local. Ahora las dos
+mitades usan la fecha local (`todayLocalISO()`).
+
 ## Desarrollo local
 
 ```bash

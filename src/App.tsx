@@ -20,6 +20,7 @@ import {
   persistDerivedState,
   seedCloudIfEmpty,
   cacheStateLocally,
+  notifyCloudReadProblem,
   SyncError,
 } from './services/db';
 import { computeLedger } from './services/ledger';
@@ -82,7 +83,7 @@ function App() {
   // Todo esto corre únicamente sobre datos recién traídos del servidor. Nunca
   // sobre la copia local: una copia local vieja rotada y subida borraría los
   // cambios de todos los demás.
-  const adoptCloudState = async (cloudState: AppState) => {
+  const adoptCloudState = async (cloudState: AppState, degraded = false) => {
     // Sin cortocircuito — las tres migraciones tienen que correr siempre, no
     // solo hasta que una devuelva true.
     const cemeteryMigrated = applyCemeteryMigration(cloudState);
@@ -98,6 +99,15 @@ function App() {
       return;
     }
 
+    // Backend en modo solo lectura: no se intenta guardar (fallaría) pero SÍ se
+    // muestra el estado rotado. La rotación se calcula en el cliente, así que
+    // mientras se pueda leer, en pantalla le toca a quien de verdad le toca; en
+    // cuanto el token vuelva, el primer guardado lo deja asentado.
+    if (degraded) {
+      setState(rotated);
+      return;
+    }
+
     // Si otro dispositivo ganó la carrera y ya hizo la misma rotación, esto
     // devuelve null: su versión y la nuestra son equivalentes, y el próximo
     // refresco la trae. No hay nada que reintentar.
@@ -110,8 +120,23 @@ function App() {
   // (primer arranque del grupo), recién ahí se siembra.
   useEffect(() => {
     pullFromCloud().then(read => {
-      if (!read.ok) return; // se queda con el placeholder; el polling reintenta
-      if (read.state) return adoptCloudState(read.state);
+      if (!read.ok) {
+        // Antes esto era un `return` pelado. Un backend caído quedaba
+        // indistinguible de una app sana: se seguía mostrando la copia local
+        // como si estuviera al día, y así la cola de turnos se atrasó una
+        // semana sin que nadie viera nada raro.
+        notifyCloudReadProblem(
+          'No hay conexión con el servidor: lo que ves puede estar viejo, incluido de quién es el turno.'
+        );
+        return; // se queda con el placeholder; el refresco reintenta
+      }
+      if (read.degraded) {
+        notifyCloudReadProblem(
+          'El servidor está en modo solo lectura: los turnos se ven bien, pero nada que cambies se va a guardar.'
+        );
+      }
+      if (read.state) return adoptCloudState(read.state, read.degraded);
+      if (read.degraded) return; // sin token no se puede sembrar nada
       return seedCloudIfEmpty().then(seeded => {
         if (seeded) setState(seeded);
       });
@@ -134,7 +159,18 @@ function App() {
       // servidor — pero se vería un parpadeo al valor anterior.)
       if (Date.now() - lastLocalWriteRef.current < 6000) return;
       const read = await pullFromCloud();
-      if (read.ok && read.state) await adoptCloudState(read.state);
+      if (!read.ok) {
+        notifyCloudReadProblem(
+          'Se perdió la conexión con el servidor: lo que ves puede estar viejo, incluido de quién es el turno.'
+        );
+        return;
+      }
+      if (read.degraded) {
+        notifyCloudReadProblem(
+          'El servidor está en modo solo lectura: los turnos se ven bien, pero nada que cambies se va a guardar.'
+        );
+      }
+      if (read.state) await adoptCloudState(read.state, read.degraded);
     }, 15000);
     return () => clearInterval(id);
   }, []);

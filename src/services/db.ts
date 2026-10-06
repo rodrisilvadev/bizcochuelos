@@ -24,10 +24,24 @@ export const createEmptySelections = (catalog: CatalogItem[]): BizcochoSelection
     return acc;
   }, {} as BizcochoSelections);
 
+// Fecha de un Date en el huso LOCAL, no en UTC. `toISOString()` devuelve UTC,
+// y en Uruguay (UTC-3) eso adelanta el cambio de día a las 21:00: quien abría
+// la app un miércoles de noche ya veía el turno de la semana siguiente, y la
+// compra de ese miércoles quedaba registrada con el día todavía en curso. El
+// Dashboard siempre calculó el miércoles con la fecha local (`getDay()`), así
+// que durante esas tres horas las dos mitades de la app no coincidían: la
+// pantalla decía "miércoles 16" y la cola ya mostraba al comprador del 23.
+const toLocalISODate = (d: Date): string => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+export const todayLocalISO = (): string => toLocalISODate(new Date());
+
 export const getNextWednesday = (dateStr: string): string => {
   const d = new Date(dateStr + 'T12:00:00');
   d.setDate(d.getDate() + 7);
-  return d.toISOString().split('T')[0];
+  return toLocalISODate(d);
 };
 
 // Fabri compró el 2026-06-24. El próximo es Ignacio.
@@ -311,6 +325,21 @@ const notifySyncError = (message: string): void => {
   syncErrorListeners.forEach(listener => listener(message));
 };
 
+// Un fallo de LECTURA no se puede avisar en cada intento (el refresco corre
+// cada 15 s y taparía la pantalla de toasts), pero tampoco puede quedar en
+// silencio: eso es lo que dejó la cola de turnos congelada una semana con el
+// token del Gist vencido, mostrando la última copia local como si estuviera al
+// día. Se avisa el primer fallo y después, como mucho, uno cada 5 minutos.
+const READ_PROBLEM_COOLDOWN_MS = 5 * 60 * 1000;
+let lastReadProblemAt = 0;
+
+export const notifyCloudReadProblem = (message: string): void => {
+  const now = Date.now();
+  if (now - lastReadProblemAt < READ_PROBLEM_COOLDOWN_MS) return;
+  lastReadProblemAt = now;
+  notifySyncError(message);
+};
+
 // Error de sincronización: la mutación NO quedó guardada en ningún lado. Se
 // lanza a propósito en vez de guardar solo localmente. Un guardado local que
 // nunca llega a la nube es peor que un error: la persona ve su cambio aplicado,
@@ -333,8 +362,12 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 // leer" no es un detalle: son los dos casos en los que antes se devolvía null,
 // y confundirlos es lo que llevaba a tratar un backend caído como una base
 // vacía y escribirle encima el estado semilla.
+//
+// `degraded: true` lo pone el servidor (cabecera X-Bizcochuelos-Degraded)
+// cuando pudo leer el Gist público pero el token no sirve: se puede mostrar el
+// estado compartido, no se puede guardar nada.
 export type CloudRead =
-  | { ok: true; state: AppState | null }
+  | { ok: true; state: AppState | null; degraded?: boolean }
   | { ok: false; error: string };
 
 export const pullFromCloud = async (): Promise<CloudRead> => {
@@ -357,8 +390,10 @@ export const pullFromCloud = async (): Promise<CloudRead> => {
     return { ok: false, error: `Respuesta ilegible: ${String(err)}` };
   }
 
-  if (data === null || data === undefined) return { ok: true, state: null };
-  return { ok: true, state: normalizeState(data as AppState) };
+  const degraded = res.headers.get('X-Bizcochuelos-Degraded') === 'read-only';
+
+  if (data === null || data === undefined) return { ok: true, state: null, degraded };
+  return { ok: true, state: normalizeState(data as AppState), degraded };
 };
 
 // ── Escritura ──────────────────────────────────────────────────────────────
@@ -447,6 +482,15 @@ const mutate = async (apply: (state: AppState) => void): Promise<AppState> => {
       throw new SyncError(read.error);
     }
 
+    // El servidor puede leer pero no escribir (token del Gist vencido). Se
+    // corta acá en vez de gastar el intento: la `rev` que trajo esa lectura no
+    // es autoritativa, así que el compare-and-set sería a ciegas.
+    if (read.degraded) {
+      const message = 'El servidor está en modo solo lectura. Avisale a Rodri: hay que renovar el token.';
+      notifySyncError(message);
+      throw new SyncError('Backend en modo solo lectura (GIST_TOKEN inválido)');
+    }
+
     // La nube vacía es el único caso en el que la semilla es dato legítimo, y
     // el servidor lo verifica de nuevo antes de aceptarlo (expectedRev null
     // solo se acepta si el documento realmente está vacío).
@@ -525,7 +569,7 @@ export const seedCloudIfEmpty = async (): Promise<AppState | null> => {
 // con los arrays originales modificados y no podía comparar antes/después.
 export const checkAndRotateWednesday = (input: AppState): AppState => {
   const state = clone(input);
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = todayLocalISO();
   let currentWednesday = state.lastProcessedWednesday;
   let nextWednesday = getNextWednesday(currentWednesday);
   let stateChanged = false;
