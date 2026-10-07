@@ -12,9 +12,9 @@ const formatDate = (dateStr: string): string =>
     weekday: 'long', day: 'numeric', month: 'long',
   });
 
-// El historial completo se guarda para siempre porque es el libro contable del
-// Balance de Levadura (recortarlo correría los balances en silencio). Acá se
-// muestran solo los últimos, que es lo único que alguien mira.
+// El historial completo se guarda para siempre: es el único registro de lo que
+// pasó cada semana, y recortarlo pierde dato real sin forma de recuperarlo.
+// Acá se muestran solo los últimos, que es lo único que alguien mira.
 const MAX_VISIBLE = 60;
 
 export const History: React.FC<HistoryProps> = ({ history }) => {

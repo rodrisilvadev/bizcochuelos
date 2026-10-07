@@ -29,10 +29,10 @@ cada cosa. Cada persona tiene 12 puntos por semana, y cada ítem cuesta
 | Pan tortuga integral | $30 | 4 | 3 |
 
 Los puntos son **relativos** al presupuesto, no absolutos en pesos. Eso importa
-porque el Balance de Levadura es un libro contable histórico: si mañana aumenta la
-panadería y se suben precios y presupuesto juntos, los puntos no se mueven y los
-balances viejos siguen significando lo mismo. Un libro en pesos se distorsionaría
-con cada aumento.
+porque el historial los guarda congelados: si mañana aumenta la panadería y se
+suben precios y presupuesto juntos, los puntos no se mueven y las entradas viejas
+siguen significando lo mismo. Un registro en pesos se distorsionaría con cada
+aumento.
 
 Una selección está **completa** cuando ya no entra nada más, no cuando llega justo
 a 12: 2 tortugas + 1 bizcocho gastan 11 puntos y sobra 1, que no alcanza para nada.
@@ -79,30 +79,27 @@ Desde el rediseño de julio 2026, agregar un integrante en **Integrantes → Agr
 
 La persona queda marcada con `needsOnboarding: true` y entra 2° en la cola (no paga la próxima, le toca la siguiente — cumple el Mandamiento 1). La primera vez que esa persona selecciona su nombre en el login, ve un modal de bienvenida (con confetti) y ahí arma su pedido de 12 puntos; recién ahí puede navegar el resto de la app. Este flujo **no afecta a integrantes que ya existían** antes del cambio — solo aplica a altas nuevas.
 
-## Balance de Levadura ("la verdad dura")
+## El historial guarda más de lo que muestra
 
-Mide si el reparto es justo, sin hablar de plata. La unidad es el **bizcocho**.
+Cada entrada del historial lleva, además del desglose por tipo, el **padrón de esa
+semana** (`participants`: quién estaba y cuánto comió, en unidades y en puntos).
+Hoy **ninguna pantalla lo lee**. Está a propósito.
 
-Contar turnos (`comprasCount`) sería injusto: un turno no vale siempre lo mismo, porque comprar cuando el grupo es de 8 cuesta el doble que cuando es de 4. El invariante correcto es *cada uno debería haber puesto tantos bizcochos como los que comió*:
+Ese padrón existía para el **Balance de Levadura**, una tabla que medía si el reparto
+era justo (`puso − comió` en puntos, con Σ balances = 0 incluyendo a los del
+Cementerio). Se sacó el 2026-10-07: **nadie lo miraba**. Vivía en
+`services/ledger.ts` y `components/BalanceLevadura.tsx`, con un botón central en el
+footer, un chip por persona en Integrantes y un epitafio en el Cementerio — todo
+recuperable del historial de git si alguna vez vuelve a interesar.
 
-```
-puso_i    = Σ (total del pedido) sobre las semanas en que le tocó comprar
-comió_i   = Σ (lo que comió esa semana) sobre las semanas en que estuvo
-balance_i = puso_i − comió_i
-```
+El **dato** se sigue escribiendo igual, y no es por nostalgia: el momento de la
+rotación es la **única** oportunidad de registrarlo. Nadie va a recordar en marzo
+quién comió qué un miércoles de octubre, así que dejar de guardarlo abriría un
+agujero irreparable. Cuesta unos cientos de bytes por semana en un documento de 15 KB.
 
-**Σ balance_i = 0** sobre todo el que alguna vez participó. La semana que comprás tu neto es `(total − lo tuyo)`, positivo; el de cada otro es `(−lo suyo)`. Como `total` es la suma de lo que come el grupo, se cancela. Por eso el libro **incluye a los que están en el Cementerio**: sacarlos rompería el cero y repartiría su deuda entre los que quedan sin que se note.
-
-Detalles que importan:
-
-- **Se deriva del historial, no se acumula.** `checkAndRotateWednesday` corre en cada dispositivo, así que un contador acumulado podría sumar dos veces la misma semana y quedar mal para siempre sin forma de auditarlo. Derivarlo lo hace recalculable (`services/ledger.ts`).
-- **Diente de sierra.** El balance salta para arriba el día que comprás y baja cada semana hasta que te vuelve a tocar. **Estar en negativo no es hacer trampa: es que se te viene el turno.** Lo que delata a alguien es irse del grupo en negativo — por eso el Cementerio muestra el balance final de cada baja.
-- **El libro arranca el 2026-07-01**, la primera entrada del historial. Antes de esa fecha no hay registro de quién estaba ni de cuánto comía. La fecha se muestra en la interfaz a propósito.
-- **Limitación conocida:** Fabri y Javier tienen cada uno una compra anterior a esa fecha (`comprasCount = 1` sin entrada en el historial). El libro no puede acreditarla porque no quedó registrado el tamaño de ese pedido, así que su balance exagera la deuda en aproximadamente un turno. La interfaz lo avisa explícitamente en su fila en vez de esconderlo.
-- **La cola no se reordena sola.** El orden del balance es *sugerencia*: el más negativo es el que debería seguir. La cola sigue siendo manual (Mandamiento 4). Ojo: una rotación redonda **no corrige** un desbalance previo, solo lo congela — para emparejar hace falta que alguien compre fuera de turno.
-- **El historial ya no se recorta a 60**, porque es el libro contable: recortarlo correría los balances en silencio. Se guardan hasta 520 semanas (~10 años) y `History.tsx` muestra las últimas 60.
-
-Se muestra en la pestaña **Compra** (tabla completa con explicación), como chip en **Integrantes**, y como epitafio en el **Cementerio**.
+Por lo mismo el historial **no se recorta a 60**: se guardan hasta 520 semanas (~10
+años) y `History.tsx` muestra las últimas 60. El que se limita es el renderizado,
+nunca el dato.
 
 ## Cementerio Harinoso
 
@@ -191,13 +188,11 @@ npm run dev   # levanta server.js (puerto 3001) + vite (puerto 5173) juntos
 
 ## Estructura de componentes
 
-- `App.tsx` — layout, tabs, estado global, polling, cálculo del ledger.
+- `App.tsx` — layout, tabs, estado global, polling, sincronización con la nube.
 - `services/db.ts` — toda la lógica de dominio (rotación de miércoles, altas, historial, migraciones, sync con la nube).
-- `services/ledger.ts` — el Balance de Levadura: matemática pura, derivada del historial.
 - `services/catalog.ts` — la aritmética de puntos: precio → puntos, presupuesto, validación de una selección.
 - `services/admin.ts` — hash y verificación del PIN, y quién ve la puerta.
 - `components/Dashboard.tsx` — turno activo, pedido de la semana, gestión manual de la cola.
-- `components/BalanceLevadura.tsx` — tabla de balances con su explicación.
 - `components/Members.tsx` — alta/baja/edición de integrantes.
 - `components/History.tsx` — historial de pedidos pasados.
 - `components/Cemetery.tsx` — el Cementerio Harinoso.

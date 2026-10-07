@@ -4,8 +4,8 @@ import { PUNTOS_POR_PERSONA, PRESUPUESTO_PESOS_DEFAULT } from '../types';
 // ── El catálogo y el presupuesto semanal ───────────────────────────────────
 //
 // Ver el comentario largo en types.ts para el porqué de los puntos. Acá está
-// la aritmética, en un solo lugar: el picker, la validación y el Balance de
-// Levadura tienen que coincidir siempre en cuánto vale cada cosa. Si el picker
+// la aritmética, en un solo lugar: el picker, la validación y el registro del
+// historial tienen que coincidir siempre en cuánto vale cada cosa. Si el picker
 // dejara agregar algo que la validación no acepta, la selección quedaría
 // imposible de guardar y no habría forma de darse cuenta de por qué.
 

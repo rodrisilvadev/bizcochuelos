@@ -27,10 +27,10 @@ export interface CatalogItem {
 //   pan tortuga    ($30) → 4 puntos  →  3 por semana
 //
 // Los puntos son RELATIVOS al presupuesto, no absolutos en pesos. Eso importa
-// para el Balance de Levadura, que es un libro contable histórico: si mañana
-// todo aumenta y se suben precio y presupuesto juntos, los puntos no se mueven
-// y los balances viejos siguen significando lo mismo. Un libro en pesos se
-// distorsionaría con cada aumento.
+// porque el historial los guarda congelados: si mañana todo aumenta y se suben
+// precio y presupuesto juntos, los puntos no se mueven y las entradas viejas
+// siguen significando lo mismo. Un registro en pesos se distorsionaría con
+// cada aumento.
 export const PUNTOS_POR_PERSONA = 12;
 
 // Cuánto sale, aproximadamente, lo que come una persona por semana. Es el
@@ -82,16 +82,16 @@ export interface User {
 }
 
 // Quién estaba en el grupo un miércoles dado y cuánto comió ese día. Se guarda
-// el nombre además del id porque el Balance de Levadura tiene que poder mostrar
-// a gente que ya se fue del grupo (y que por lo tanto ya no está en `users`).
+// el nombre además del id para que la entrada se pueda leer sola: la gente que
+// se fue del grupo ya no está en `users`, y sin el nombre guardado su id
+// quedaría huérfano para siempre.
 export interface HistoryParticipant {
   id: string;
   name: string;
   ate: number; // Unidades que se llevó esa semana (lo que cuenta la panadería)
-  // Lo mismo medido en puntos, que es lo que usa el Balance de Levadura.
-  // Opcional solo para entradas guardadas antes de que existieran los puntos;
-  // ahí vale `ate × PUNTOS_BIZCOCHO_COMUN`, que es exacto porque en esa época
-  // todos los bizcochos costaban lo mismo.
+  // Lo mismo medido en puntos. Opcional solo para entradas guardadas antes de
+  // que existieran los puntos; ahí vale `ate × PUNTOS_BIZCOCHO_COMUN`, que es
+  // exacto porque en esa época todos los bizcochos costaban lo mismo.
   puntos?: number;
 }
 
@@ -102,29 +102,10 @@ export interface HistoryEntry {
   items: Partial<Record<BizcochoType, number>>;
   total: number;   // Unidades del pedido
   puntos?: number; // El pedido en puntos. Invariante: === suma de participants.puntos
-  // Padrón de esa semana. Opcional solo por compatibilidad con entradas
-  // guardadas antes de que existiera el Balance de Levadura; la migración
-  // `applyLedgerMigration` lo completa. Invariante: suma de `ate` === `total`.
+  // Padrón de esa semana: quién estaba y cuánto comió. Opcional solo por
+  // compatibilidad con las entradas más viejas del historial. Invariante:
+  // suma de `ate` === `total`.
   participants?: HistoryParticipant[];
-}
-
-// Una fila del Balance de Levadura. Se calcula a partir del historial (ver
-// services/ledger.ts), nunca se guarda en el estado: es un valor derivado.
-// `puso`, `comio` y `balance` van en PUNTOS (12 = una semana completa).
-export interface LedgerRow {
-  id: string;
-  name: string;
-  puso: number;    // Puntos que aportó (suma de los pedidos que le tocó comprar)
-  comio: number;   // Puntos que consumió en las semanas que estuvo
-  balance: number; // puso − comió. Positivo = acreedor, negativo = deudor
-  compras: number; // Cantidad de miércoles que le tocó comprar (dentro del libro)
-  semanas: number; // Cantidad de miércoles cerrados en los que estuvo en el grupo
-  activo: boolean; // Si sigue en el grupo (false = está en el Cementerio)
-  // Compras de toda su historia, incluidas las anteriores al inicio del libro
-  // (viene de `comprasCount`). No entra en el balance — que solo puede contar
-  // lo que tiene registro completo — pero sí se usa para desempatar: entre dos
-  // personas con el mismo balance, debe primero la que menos veces compró.
-  comprasTotales: number;
 }
 
 // Registro del Cementerio Harinoso: integrantes dados de baja, con el mes en

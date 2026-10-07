@@ -3,7 +3,6 @@ import {
   getPlaceholderState,
   checkAndRotateWednesday,
   applyCemeteryMigration,
-  applyLedgerMigration,
   applyCatalogMigration,
   dbRecordUserVisit,
   dbAddUser,
@@ -23,7 +22,6 @@ import {
   notifyCloudReadProblem,
   SyncError,
 } from './services/db';
-import { computeLedger } from './services/ledger';
 import { isAdminUser, isUnlocked, setUnlocked } from './services/admin';
 import type { AppState, BizcochoSelections, BizcochoType } from './types';
 import { Dashboard } from './components/Dashboard';
@@ -33,11 +31,10 @@ import { WelcomeModal } from './components/WelcomeModal';
 import { RulesModal } from './components/RulesModal';
 import { History } from './components/History';
 import { Cemetery } from './components/Cemetery';
-import { BalanceLevadura } from './components/BalanceLevadura';
 import { AdminPanel } from './components/AdminPanel';
 import { PinModal } from './components/PinModal';
 import { SyncErrorToasts } from './components/SyncErrorToasts';
-import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, Scale, ShieldCheck, History as HistoryIcon } from 'lucide-react';
+import { Coffee, LayoutDashboard, Users, ShoppingBag, X, Sun, Moon, ScrollText, ShieldCheck, History as HistoryIcon } from 'lucide-react';
 import { TombstoneIcon } from './components/TombstoneIcon';
 
 type Theme = 'light' | 'dark';
@@ -53,7 +50,6 @@ function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'history' | 'cemetery'>('dashboard');
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
-  const [showBalanceModal, setShowBalanceModal] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   // Qué hacer una vez que se pase el PIN. Guardar la intención evita el paso
   // extra de "desbloqueaste, ahora volvé a tocar el botón".
@@ -84,12 +80,11 @@ function App() {
   // sobre la copia local: una copia local vieja rotada y subida borraría los
   // cambios de todos los demás.
   const adoptCloudState = async (cloudState: AppState, degraded = false) => {
-    // Sin cortocircuito — las tres migraciones tienen que correr siempre, no
+    // Sin cortocircuito — las dos migraciones tienen que correr siempre, no
     // solo hasta que una devuelva true.
     const cemeteryMigrated = applyCemeteryMigration(cloudState);
-    const ledgerMigrated = applyLedgerMigration(cloudState);
     const catalogMigrated = applyCatalogMigration(cloudState);
-    const migrated = cemeteryMigrated || ledgerMigrated || catalogMigrated;
+    const migrated = cemeteryMigrated || catalogMigrated;
     const rotated = checkAndRotateWednesday(cloudState);
     const changed = migrated || rotated.lastProcessedWednesday !== cloudState.lastProcessedWednesday;
 
@@ -282,11 +277,6 @@ function App() {
   const currentBuyer = state.users.find(u => u.id === state.buyerQueue[0]);
   const onboarding = !!(activeUserObj && activeUserObj.needsOnboarding);
 
-  // Balance de Levadura. Se calcula una sola vez acá (es un valor derivado del
-  // historial) y se reparte, para que las tres pantallas que lo muestran no
-  // puedan llegar a discrepar entre sí.
-  const ledger = computeLedger(state);
-
   return (
     <div className="min-h-screen bg-carbon-light dark:bg-[#0b0b0c] flex flex-col font-sans selection:bg-apple-green/20 selection:text-carbon-dark">
 
@@ -308,15 +298,6 @@ function App() {
 
       {/* RULES MODAL — mandamientos bizcochísticos */}
       {showRulesModal && <RulesModal onClose={() => setShowRulesModal(false)} />}
-
-      {/* BALANCE MODAL — se abre desde el botón central del footer */}
-      {showBalanceModal && (
-        <BalanceLevadura
-          ledger={ledger}
-          currentUser={currentUser}
-          onClose={() => setShowBalanceModal(false)}
-        />
-      )}
 
       {/* ADMIN — panel de catálogo y presupuesto, detrás del PIN */}
       {showAdminPanel && canAdmin && (
@@ -504,14 +485,13 @@ function App() {
           <Members
             state={state}
             users={state.users}
-            ledger={ledger}
             onAddUser={handleAddUser}
             onUpdateUserSelections={handleUpdateUserSelections}
             onDeleteUser={handleDeleteUser}
           />
         )}
         {activeTab === 'history' && <History history={state.history} />}
-        {activeTab === 'cemetery' && <Cemetery cemetery={state.cemetery} ledger={ledger} />}
+        {activeTab === 'cemetery' && <Cemetery cemetery={state.cemetery} />}
       </main>
 
       {/* FAB — sticky "Lista Panadería" (mismo estilo glass-hero que la card del turno) */}
@@ -530,13 +510,10 @@ function App() {
       {/* BOTTOM TAB BAR */}
       {!onboarding && (
       <nav className="fixed bottom-0 left-0 right-0 z-40 glassmorphism border-t border-white/60 shadow-glass">
-        {/* Las cinco celdas son flex-1 basis-0, o sea exactamente 1/5 del ancho
-            cada una. Es lo que hace que el botón de Balance caiga en el centro
-            real de la barra: con `justify-around` se repartían según el ancho
-            natural de cada texto, y como "Compra + Integrantes" no pesa lo
-            mismo que "Historial + Cementerio", el centro se corría.
-            items-end alinea las etiquetas al mismo baseline pese a que el botón
-            central es más alto. */}
+        {/* Las cuatro celdas son flex-1 basis-0, o sea exactamente 1/4 del ancho
+            cada una. Con `justify-around` se repartían según el ancho natural de
+            cada texto, y "Compra + Integrantes" no pesa lo mismo que "Historial +
+            Cementerio", así que las pestañas quedaban desparejas. */}
         <div className="max-w-2xl mx-auto px-2 py-2 flex items-end">
           <button
             id="tab-btn-dashboard"
@@ -570,24 +547,6 @@ function App() {
               Integrantes
             </span>
             {activeTab === 'members' && <div className="nav-active-indicator" />}
-          </button>
-
-          {/* Botón central: Balance de Levadura. No es una pestaña — abre un
-              modal, así que a propósito no participa de `activeTab` ni se
-              queda "seleccionado". */}
-          <button
-            id="btn-balance"
-            onClick={() => setShowBalanceModal(true)}
-            title="Balance de Levadura — la verdad dura"
-            aria-label="Ver el Balance de Levadura"
-            className="relative flex-1 basis-0 min-w-0 flex flex-col items-center gap-1 px-0.5 py-1.5 cursor-pointer group"
-          >
-            <div className="w-12 h-12 -mt-7 rounded-2xl bg-apple-green flex items-center justify-center shadow-lifted group-hover:bg-apple-green-hover group-active:scale-95 transition-all duration-200 flex-shrink-0">
-              <Scale className="w-5 h-5 text-carbon-dark" strokeWidth={2.5} />
-            </div>
-            <span className="text-[10px] font-bold tracking-tight text-gray-400 group-hover:text-carbon-dark dark:group-hover:text-white transition-colors w-full text-center truncate">
-              Balance
-            </span>
           </button>
 
           <button

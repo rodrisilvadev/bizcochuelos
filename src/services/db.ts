@@ -201,63 +201,6 @@ export const applyCemeteryMigration = (state: AppState): boolean => {
   return changed;
 };
 
-// ── Migración del Balance de Levadura ──────────────────────────────────────
-//
-// Las 4 primeras entradas del historial (julio 2026) se guardaron antes de que
-// existiera el campo `participants`, así que no dicen quién comió qué. Sin eso
-// el libro contable no se puede calcular.
-//
-// El padrón se pudo reconstruir con certeza aritmética, no adivinando: los 4
-// pedidos son de 32 bizcochos, y la suma de las elecciones de los 6
-// integrantes actuales da 24. La diferencia son exactamente 8 bizcochos
-// (Queso 1, ddl 2, Margarita 3, jyq 2) = 2 personas × 4, que son Pablo y Fede
-// (Fede seguía contado en los pedidos aunque ya se había ido en junio: la baja
-// nunca se había registrado en los datos). Lucía no entra: su id lleva el
-// timestamp de su alta, el 2026-07-24, posterior al último miércoles del
-// historial.
-const JULY_2026_ROSTER = ['rodri', 'fabri', 'bernardo', 'mauri', 'javier', 'ignacio', 'pablo', 'fede'];
-const JULY_2026_DATES = ['2026-07-01', '2026-07-08', '2026-07-15', '2026-07-22'];
-
-// Nombres de los que ya no están en `users` y por lo tanto no se pueden
-// resolver desde el estado actual.
-const DEPARTED_NAMES: Record<string, string> = { pablo: 'Pablo', fede: 'Fede' };
-
-// Completa el padrón de las entradas viejas del historial. Idempotente: solo
-// toca entradas que no lo tengan, y solo las 4 fechas conocidas — una entrada
-// vieja de otra fecha se deja sin padrón a propósito (el ledger la saltea
-// entera) en vez de inventarle uno.
-//
-// IMPORTANTE: igual que applyCemeteryMigration, NUNCA debe llamarse sobre una
-// copia local no verificada como fresca. Devuelve `true` si modificó algo y
-// quien llama decide si corresponde persistir (ver App.tsx).
-export const applyLedgerMigration = (state: AppState): boolean => {
-  let changed = false;
-
-  for (const entry of state.history) {
-    if (entry.participants && entry.participants.length > 0) continue;
-    if (!JULY_2026_DATES.includes(entry.date)) continue;
-
-    // En esa época cada persona elegía exactamente 4 bizcochos, todos del
-    // mismo precio. No se le escriben `puntos` a propósito: el ledger convierte
-    // unidades a puntos por su cuenta para TODA entrada vieja (ver
-    // `puntosDe` en ledger.ts), así que dejarlo sin el campo mantiene un solo
-    // camino de conversión en vez de dos que podrían discrepar.
-    const ate = 4;
-    // Si el total no cierra con el padrón reconstruido, no migramos: preferimos
-    // una entrada sin balance antes que un balance mal calculado.
-    if (entry.total !== JULY_2026_ROSTER.length * ate) continue;
-
-    entry.participants = JULY_2026_ROSTER.map(id => ({
-      id,
-      name: state.users.find(u => u.id === id)?.name ?? DEPARTED_NAMES[id] ?? id,
-      ate,
-    }));
-    changed = true;
-  }
-
-  return changed;
-};
-
 // ── Migración del catálogo ─────────────────────────────────────────────────
 //
 // La lista de bizcochos pasó de ser una constante del código a ser dato
@@ -588,18 +531,23 @@ export const checkAndRotateWednesday = (input: AppState): AppState => {
         if (buyerUser) {
           buyerUser.comprasCount = (buyerUser.comprasCount || 0) + 1;
 
-          // Guardamos una foto del pedido de esa semana para el historial:
-          // el desglose por tipo (para la panadería) y el padrón por persona
-          // (para el Balance de Levadura). Se registra a todo el grupo,
-          // incluido quien todavía no eligió sus bizcochos — figura con 0,
-          // que es exactamente lo que comió esa semana.
+          // Guardamos una foto del pedido de esa semana para el historial: el
+          // desglose por tipo (para la panadería) y el padrón por persona. Se
+          // registra a todo el grupo, incluido quien todavía no eligió sus
+          // bizcochos — figura con 0, que es exactamente lo que comió esa semana.
+          //
+          // El padrón ya no lo lee ninguna pantalla: el Balance de Levadura se
+          // sacó porque nadie lo miraba. Se sigue guardando igual porque es la
+          // única oportunidad de registrarlo — nadie va a recordar en marzo
+          // quién comió qué este miércoles. Dejar de escribirlo abriría un
+          // agujero irreparable en el historial.
           //
           // Se guardan las dos unidades: `ate`/`total` en unidades (lo que
-          // cuenta la panadería y lo que se muestra en el historial) y
-          // `puntos` (lo que usa el Balance de Levadura). El precio de cada
-          // ítem puede cambiar después, así que los puntos se congelan acá con
-          // los del momento de la compra — recalcularlos más tarde correría
-          // balances viejos por un aumento de precio de hoy.
+          // cuenta la panadería y lo que se muestra en el historial) y `puntos`
+          // (la fracción del presupuesto). El precio de cada ítem puede cambiar
+          // después, así que los puntos se congelan acá con los del momento de
+          // la compra — recalcularlos más tarde correría las entradas viejas por
+          // un aumento de precio de hoy.
           const puntos = puntosPorTipo(state);
           const items: HistoryEntry['items'] = {};
           const participants: HistoryParticipant[] = [];
@@ -626,10 +574,9 @@ export const checkAndRotateWednesday = (input: AppState): AppState => {
             items, total, puntos: totalPuntos, participants,
           };
           state.history.push(entry);
-          // El historial es el libro contable del Balance de Levadura, así que
-          // recortarlo corre los balances en silencio. El tope es alto a
-          // propósito (~10 años); el que se limita es el renderizado, no el
-          // dato (ver History.tsx).
+          // El tope es alto a propósito (~10 años): el historial es el único
+          // registro de lo que pasó cada semana y recortarlo pierde dato real.
+          // El que se limita es el renderizado, no el dato (ver History.tsx).
           if (state.history.length > 520) state.history.shift();
         }
       }
@@ -758,8 +705,8 @@ export const dbRemoveCatalogItem = async (name: string): Promise<AppState> =>
 // El presupuesto semanal en pesos. Es el divisor que convierte precios en
 // puntos, así que subirlo sin tocar los precios abarata todo en puntos (entra
 // más por semana) y viceversa. Cuando aumenta la panadería, lo correcto es
-// subir precios y presupuesto juntos: ahí los puntos —y por lo tanto el
-// Balance de Levadura— no se mueven.
+// subir precios y presupuesto juntos: ahí los puntos no se mueven y el
+// historial viejo sigue siendo comparable con el nuevo.
 export const dbSetPresupuesto = async (pesos: number): Promise<AppState> =>
   mutate(state => {
     if (pesos > 0) state.presupuestoPesos = Math.round(pesos);

@@ -148,8 +148,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <p className="text-[10px] text-gray-400 font-semibold leading-snug mb-3">
               Lo que gasta cada uno por semana. Es la regla de tres que convierte los precios en
               los {PUNTOS_POR_PERSONA} puntos que tiene cada persona. Cuando aumente la panadería,
-              subí precios y presupuesto juntos: así los puntos no se mueven y el Balance de
-              Levadura sigue siendo comparable con el de meses anteriores.
+              subí precios y presupuesto juntos: así los puntos no se mueven y el historial
+              viejo sigue siendo comparable con el nuevo.
             </p>
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
