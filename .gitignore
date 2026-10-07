@@ -17,6 +17,10 @@ state.json
 # Config local de preview
 .claude/launch.json
 
+# Link local al proyecto de Vercel (IDs de proyecto/org, no va al repo)
+.vercel
+.env*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
