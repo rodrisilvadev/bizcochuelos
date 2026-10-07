@@ -111,6 +111,7 @@ Registro de las bajas del grupo: nombre, mes y epitafio (el motivo, que se pide 
 - **Estado**: la fuente de verdad es **siempre** el backend compartido en `/api/state`. `localStorage` es solo un caché para pintar algo mientras llega la respuesta — nunca es base de una escritura. Cada 15s se hace polling para tomar cambios de otros usuarios.
 - **Backend en dev**: `server.js` (Express) guarda el estado en `state.json` local. Archivo gitignoreado — no se versiona, y puede tener datos reales de uso.
 - **Backend en producción (Vercel)**: `api/state.js` es una función serverless que usa un **GitHub Gist** como almacenamiento compartido. El token (`GIST_TOKEN`) vive solo en las Environment Variables de Vercel, nunca llega al navegador.
+- **No hay Firebase.** Hubo una base `bizcochuelos-71ded` (Realtime Database) antes del Gist; está borrada (devuelve `404`) y nada del código la usaba. La dependencia `firebase` igual siguió en `package.json` hasta el 2026-10-07: 40 MB y 29 subpaquetes sin un solo `import`. Se sacó, y el bundle salió con el **mismo hash** — la prueba de que no aportaba nada.
 
 ### Persistencia: por qué hay un `rev`
 
